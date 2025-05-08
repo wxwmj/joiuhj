@@ -106,164 +106,80 @@ def parse_vless_node(url, index):
 
 def parse_ss_node(url, index):
     try:
-        raw = url[5:]
-        if "#" in raw:
-            raw = raw.split("#")[0]
-        if "@" in raw:
-            method_password, server_part = raw.split("@")
-            method, password = base64.b64decode(method_password + '===').decode().split(":")
-        else:
-            decoded = base64.b64decode(raw + '===').decode()
-            method_password, server_part = decoded.split("@")
-            method, password = method_password.split(":")
-        server, port = server_part.split(":")
+        raw = url[5:].split("@")
+        password = raw[0]
+        host_port = raw[1].split("?")[0].split(":")
+        if len(host_port) < 2:
+            return None
+        host, port = host_port[0], int(host_port[1])
         return {
             "name": f"ss_{index}",
             "type": "ss",
-            "server": server,
-            "port": int(port),
-            "cipher": method,
+            "server": host,
+            "port": port,
             "password": password,
-            "udp": True
+            "method": "aes-256-gcm"
         }
     except Exception as e:
         logging.warning(f"[解析失败] ss：{e}")
         return None
 
-# ========== 生成 Clash 配置 ==========
-def generate_clash_config(nodes):
-    proxies = []
-    for i, node in enumerate(nodes):
-        if node.startswith("vmess://"):
-            proxy = parse_vmess_node(node, i + 1)
-        elif node.startswith("trojan://"):
-            proxy = parse_trojan_node(node, i + 1)
-        elif node.startswith("vless://"):
-            proxy = parse_vless_node(node, i + 1)
-        elif node.startswith("ss://"):
-            proxy = parse_ss_node(node, i + 1)
-        else:
-            proxy = None
+# ========== 获取Telegram消息 ==========
+async def fetch_telegram_nodes(client, group_username):
+    group = await client.get_entity(group_username)
+    all_nodes = []
+    async for message in client.iter_messages(group):
+        if message.date < datetime.now() - max_age:
+            continue
+        urls = url_pattern.findall(message.text)
+        for idx, url in enumerate(urls):
+            if "cn" not in url.lower():
+                if url.startswith("vmess://"):
+                    node = parse_vmess_node(url, idx)
+                elif url.startswith("trojan://"):
+                    node = parse_trojan_node(url, idx)
+                elif url.startswith("vless://"):
+                    node = parse_vless_node(url, idx)
+                elif url.startswith("ss://"):
+                    node = parse_ss_node(url, idx)
+                if node:
+                    all_nodes.append(node)
+    return all_nodes
 
-        if proxy:
-            proxies.append(proxy)
-
-    # ========== 确保输出目录存在 ==========
-    output_dir = "output"
+# ========== 生成配置 ==========
+def generate_clash_config(nodes, output_dir="output"):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-
-    # ========== 生成并保存文件 ==========
-    config = {
-        "proxies": proxies,
-        "proxy-groups": [{
-            "name": "auto",
-            "type": "url-test",
-            "proxies": [p["name"] for p in proxies],
-            "url": "http://www.gstatic.com/generate_204",
-            "interval": 300
-        }],
-        "rules": ["MATCH,auto"]
+    clash_config = {
+        "proxies": nodes,
+        "proxy-groups": [
+            {"name": "Auto", "type": "select", "proxies": [node["name"] for node in nodes]}
+        ]
     }
-
     with open(os.path.join(output_dir, "wxx.yaml"), "w", encoding="utf-8") as f:
-        yaml.dump(config, f, allow_unicode=True)
-    logging.info(f"[写入完成] wxx.yaml，节点数：{len(proxies)}")
+        yaml.dump(clash_config, f, default_flow_style=False, allow_unicode=True)
 
-# ========== 生成 V2Ray 配置 ==========
-def generate_v2ray_config(nodes):
-    v2ray_proxies = []
-    for i, node in enumerate(nodes):
-        if node.startswith("vmess://"):
-            proxy = parse_vmess_node(node, i + 1)
-            if proxy:
-                v2ray_proxies.append({
-                    "address": proxy["server"],
-                    "port": proxy["port"],
-                    "id": proxy["uuid"],
-                    "alterId": proxy["alterId"],
-                    "security": "auto",
-                    "network": "tcp",
-                    "tls": proxy["tls"]
-                })
-        elif node.startswith("trojan://"):
-            proxy = parse_trojan_node(node, i + 1)
-            if proxy:
-                v2ray_proxies.append({
-                    "address": proxy["server"],
-                    "port": proxy["port"],
-                    "password": proxy["password"],
-                    "network": "tcp",
-                    "security": "auto"
-                })
-        elif node.startswith("vless://"):
-            proxy = parse_vless_node(node, i + 1)
-            if proxy:
-                v2ray_proxies.append({
-                    "address": proxy["server"],
-                    "port": proxy["port"],
-                    "id": proxy["uuid"],
-                    "alterId": 0,
-                    "security": "none",
-                    "network": "tcp"
-                })
-        elif node.startswith("ss://"):
-            proxy = parse_ss_node(node, i + 1)
-            if proxy:
-                v2ray_proxies.append({
-                    "address": proxy["server"],
-                    "port": proxy["port"],
-                    "password": proxy["password"],
-                    "method": proxy["cipher"]
-                })
-
+def generate_v2ray_config(nodes, output_dir="output"):
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    v2ray_config = {
+        "inbounds": [{"port": 1080, "listen": "127.0.0.1", "protocol": "socks", "settings": {"auth": "noauth", "udp": True}}],
+        "outbounds": [{"protocol": node["type"], "settings": {"vnext": [{"address": node["server"], "port": node["port"], "users": [{"id": node["uuid"], "alterId": node["alterId"] if "alterId" in node else 0, "security": node["cipher"]}] }]}} for node in nodes],
+    }
     with open(os.path.join(output_dir, "wxx.json"), "w", encoding="utf-8") as f:
-        json.dump(v2ray_proxies, f, ensure_ascii=False, indent=4)
-    logging.info(f"[写入完成] wxx.json，节点数：{len(v2ray_proxies)}")
+        json.dump(v2ray_config, f, ensure_ascii=False, indent=2)
 
-# ========== 抓取 Telegram 消息 ==========
-async def fetch_messages():
-    client = TelegramClient('session', api_id, api_hash)
-    await client.start(phone_number)
-
-    now = datetime.now(timezone.utc)
-    since = now - max_age
-    all_links = set()
-
-    for username in group_usernames:
-        try:
-            entity = await client.get_entity(username)
-            history = await client(GetHistoryRequest(
-                peer=entity,
-                limit=100,
-                offset_date=None,
-                offset_id=0,
-                max_id=0,
-                min_id=0,
-                add_offset=0,
-                hash=0
-            ))
-            for message in history.messages:
-                if message.date < since:
-                    continue
-                found = url_pattern.findall(message.message or '')
-                all_links.update(found)
-        except Exception as e:
-            logging.warning(f"[错误] 获取 {username} 失败：{e}")
-
-    logging.info(f"[完成] 抓取链接数: {len(all_links)}")
-    return list(all_links)
-
-# ========== 主函数 ==========
+# ========== 主程序 ==========
 async def main():
-    logging.info("[启动] 开始抓取 Telegram 节点")
-    raw_nodes = await fetch_messages()
-    unique_nodes = list(set(raw_nodes))
+    async with TelegramClient("session", api_id, api_hash) as client:
+        all_nodes = []
+        for group_username in group_usernames:
+            nodes = await fetch_telegram_nodes(client, group_username)
+            all_nodes.extend(nodes)
 
-    generate_clash_config(unique_nodes)
-    generate_v2ray_config(unique_nodes)
-
-    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+        # 生成配置
+        generate_clash_config(all_nodes)
+        generate_v2ray_config(all_nodes)
 
 if __name__ == "__main__":
     asyncio.run(main())
