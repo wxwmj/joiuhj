@@ -18,7 +18,7 @@ phone_number = os.getenv("PHONE_NUMBER")
 if not all([api_id_str, api_hash, phone_number]):
     raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 PHONE_NUMBER")
 
-api_id = int(api_id_str) 
+api_id = int(api_id_str)
 
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
@@ -161,9 +161,42 @@ def generate_clash_config(nodes):
         "rules": ["MATCH,auto"]
     }
 
-    with open("wxx.yaml", "w", encoding="utf-8") as f:
+    # 确保输出文件夹存在
+    os.makedirs("output", exist_ok=True)
+
+    # 写入 wxx.yaml
+    with open("output/wxx.yaml", "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
-    logging.info(f"[写入完成] wxx.yaml，节点数：{len(proxies)}")
+    logging.info(f"[写入完成] output/wxx.yaml，节点数：{len(proxies)}")
+
+# ========== 生成 V2Ray 配置 ==========
+def generate_v2ray_config(nodes):
+    # 生成 V2Ray 结构的占位符
+    v2ray_config = {
+        "inbounds": [],
+        "outbounds": [],
+        "routing": {},
+    }
+
+    os.makedirs("output", exist_ok=True)
+    
+    with open("output/wxx.json", "w", encoding="utf-8") as f:
+        json.dump(v2ray_config, f, indent=4)
+    logging.info("[写入完成] output/wxx.json")
+
+# ========== 生成订阅 Base64 ==========
+def generate_base64_subscription(nodes):
+    try:
+        joined_nodes = "\n".join(nodes)
+        encoded = base64.b64encode(joined_nodes.encode()).decode()
+
+        os.makedirs("output", exist_ok=True)
+        
+        with open("output/sub", "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logging.info("[写入完成] output/sub")
+    except Exception as e:
+        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
@@ -207,21 +240,13 @@ async def main():
     # 过滤去除 CN 节点
     valid_nodes = [node for node in unique_nodes if ".cn" not in node]
 
-    with open("unique_nodes.txt", "w", encoding="utf-8") as f:
+    with open("output/unique_nodes.txt", "w", encoding="utf-8") as f:
         for node in valid_nodes:
             f.write(node + "\n")
 
     generate_clash_config(valid_nodes)
-
-    # 生成 base64 编码订阅
-    try:
-        joined_nodes = "\n".join(valid_nodes)
-        encoded = base64.b64encode(joined_nodes.encode()).decode()
-        with open("subscribe_base64.txt", "w", encoding="utf-8") as f:
-            f.write(encoded)
-        logging.info("[写入完成] subscribe_base64.txt")
-    except Exception as e:
-        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
+    generate_v2ray_config(valid_nodes)
+    generate_base64_subscription(valid_nodes)
 
     logging.info(f"[完成] 保存节点配置，节点数：{len(valid_nodes)}")
 
