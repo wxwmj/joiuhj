@@ -54,7 +54,7 @@ def parse_vmess_node(node, index):
             "type": "vmess",
             "server": conf["add"],
             "port": int(conf["port"]),
-            "uuid": conf.get("id", ""),  # 给 uuid 添加默认值
+            "uuid": conf["id"],
             "alterId": int(conf.get("aid", 0)),
             "cipher": "auto",
             "tls": conf.get("tls", "none") == "tls",
@@ -96,7 +96,7 @@ def parse_vless_node(url, index):
             "type": "vless",
             "server": host,
             "port": port,
-            "uuid": uuid,  # 确保 vless 节点也有 uuid 字段
+            "uuid": uuid,
             "encryption": "none",
             "udp": True
         }
@@ -133,7 +133,6 @@ def parse_ss_node(url, index):
 # ========== 生成 Clash 配置 ==========
 def generate_clash_config(nodes):
     proxies = []
-
     for i, node in enumerate(nodes):
         if node.startswith("vmess://"):
             proxy = parse_vmess_node(node, i + 1)
@@ -149,6 +148,12 @@ def generate_clash_config(nodes):
         if proxy:
             proxies.append(proxy)
 
+    # ========== 确保输出目录存在 ==========
+    output_dir = "output"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # ========== 生成并保存文件 ==========
     config = {
         "proxies": proxies,
         "proxy-groups": [{
@@ -161,72 +166,58 @@ def generate_clash_config(nodes):
         "rules": ["MATCH,auto"]
     }
 
-    with open("output/wxx.yaml", "w", encoding="utf-8") as f:
+    with open(os.path.join(output_dir, "wxx.yaml"), "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
     logging.info(f"[写入完成] wxx.yaml，节点数：{len(proxies)}")
 
 # ========== 生成 V2Ray 配置 ==========
 def generate_v2ray_config(nodes):
     v2ray_proxies = []
-    for i, proxy in enumerate(nodes):
-        if proxy["type"] == "vmess":
-            v2ray_proxies.append({
-                "v": "2",
-                "ps": proxy["name"],
-                "add": proxy["server"],
-                "port": str(proxy["port"]),
-                "id": proxy["uuid"],
-                "aid": str(proxy["alterId"]),
-                "net": "tcp",
-                "type": "none",
-                "host": "",
-                "path": "",
-                "tls": "false"
-            })
-        elif proxy["type"] == "trojan":
-            v2ray_proxies.append({
-                "v": "2",
-                "ps": proxy["name"],
-                "add": proxy["server"],
-                "port": str(proxy["port"]),
-                "id": proxy["password"],
-                "aid": "0",
-                "net": "tcp",
-                "type": "none",
-                "host": "",
-                "path": "",
-                "tls": "false"
-            })
-        elif proxy["type"] == "vless":
-            v2ray_proxies.append({
-                "v": "2",
-                "ps": proxy["name"],
-                "add": proxy["server"],
-                "port": str(proxy["port"]),
-                "id": proxy["uuid"],
-                "aid": "0",
-                "net": "tcp",
-                "type": "none",
-                "host": "",
-                "path": "",
-                "tls": "false"
-            })
-        elif proxy["type"] == "ss":
-            v2ray_proxies.append({
-                "v": "2",
-                "ps": proxy["name"],
-                "add": proxy["server"],
-                "port": str(proxy["port"]),
-                "id": proxy["password"],
-                "aid": "0",
-                "net": "tcp",
-                "type": "none",
-                "host": "",
-                "path": "",
-                "tls": "false"
-            })
+    for i, node in enumerate(nodes):
+        if node.startswith("vmess://"):
+            proxy = parse_vmess_node(node, i + 1)
+            if proxy:
+                v2ray_proxies.append({
+                    "address": proxy["server"],
+                    "port": proxy["port"],
+                    "id": proxy["uuid"],
+                    "alterId": proxy["alterId"],
+                    "security": "auto",
+                    "network": "tcp",
+                    "tls": proxy["tls"]
+                })
+        elif node.startswith("trojan://"):
+            proxy = parse_trojan_node(node, i + 1)
+            if proxy:
+                v2ray_proxies.append({
+                    "address": proxy["server"],
+                    "port": proxy["port"],
+                    "password": proxy["password"],
+                    "network": "tcp",
+                    "security": "auto"
+                })
+        elif node.startswith("vless://"):
+            proxy = parse_vless_node(node, i + 1)
+            if proxy:
+                v2ray_proxies.append({
+                    "address": proxy["server"],
+                    "port": proxy["port"],
+                    "id": proxy["uuid"],
+                    "alterId": 0,
+                    "security": "none",
+                    "network": "tcp"
+                })
+        elif node.startswith("ss://"):
+            proxy = parse_ss_node(node, i + 1)
+            if proxy:
+                v2ray_proxies.append({
+                    "address": proxy["server"],
+                    "port": proxy["port"],
+                    "password": proxy["password"],
+                    "method": proxy["cipher"]
+                })
 
-    with open("output/wxx.json", "w", encoding="utf-8") as f:
+    with open(os.path.join(output_dir, "wxx.json"), "w", encoding="utf-8") as f:
         json.dump(v2ray_proxies, f, ensure_ascii=False, indent=4)
     logging.info(f"[写入完成] wxx.json，节点数：{len(v2ray_proxies)}")
 
@@ -269,14 +260,10 @@ async def main():
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
 
-    # 生成 Clash 配置
     generate_clash_config(unique_nodes)
+    generate_v2ray_config(unique_nodes)
 
-    # 生成 V2Ray 配置
-    valid_nodes = [node for node in unique_nodes if node]  # 添加额外的过滤条件
-    generate_v2ray_config(valid_nodes)
-
-    logging.info(f"[完成] 保存节点配置，节点数：{len(valid_nodes)}")
+    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
