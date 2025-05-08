@@ -6,6 +6,8 @@ import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
+import aiohttp
+import requests
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -41,6 +43,14 @@ def safe_b64decode(data):
         return base64.b64decode(data).decode()
     except Exception:
         return ""
+
+def get_latency(host, port):
+    try:
+        url = f"http://{host}:{port}"
+        response = requests.get(url, timeout=3)
+        return response.elapsed.total_seconds() * 1000  # 毫秒
+    except requests.RequestException:
+        return None
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
@@ -161,40 +171,66 @@ def generate_clash_config(nodes):
         "rules": ["MATCH,auto"]
     }
 
-    # 确保输出文件夹存在
-    os.makedirs("output", exist_ok=True)
-
-    # 写入 wxx.yaml
     with open("output/wxx.yaml", "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
-    logging.info(f"[写入完成] output/wxx.yaml，节点数：{len(proxies)}")
+    logging.info(f"[写入完成] wxx.yaml，节点数：{len(proxies)}")
 
 # ========== 生成 V2Ray 配置 ==========
 def generate_v2ray_config(nodes):
-    # 生成 V2Ray 结构的占位符
-    v2ray_config = {
-        "inbounds": [],
+    config = {
+        "inbounds": [{
+            "port": 1080,
+            "listen": "127.0.0.1",
+            "protocol": "socks",
+            "settings": {
+                "auth": "noauth",
+                "udp": True
+            }
+        }],
         "outbounds": [],
-        "routing": {},
+        "outboundDetour": []
     }
 
-    os.makedirs("output", exist_ok=True)
-    
-    with open("output/wxx.json", "w", encoding="utf-8") as f:
-        json.dump(v2ray_config, f, indent=4)
-    logging.info("[写入完成] output/wxx.json")
+    for i, node in enumerate(nodes):
+        if node.startswith("vmess://"):
+            proxy = parse_vmess_node(node, i + 1)
+        elif node.startswith("trojan://"):
+            proxy = parse_trojan_node(node, i + 1)
+        elif node.startswith("vless://"):
+            proxy = parse_vless_node(node, i + 1)
+        elif node.startswith("ss://"):
+            proxy = parse_ss_node(node, i + 1)
+        else:
+            proxy = None
 
-# ========== 生成订阅 Base64 ==========
+        if proxy:
+            config["outbounds"].append({
+                "protocol": proxy["type"],
+                "settings": {
+                    "vnext": [{
+                        "address": proxy["server"],
+                        "port": proxy["port"],
+                        "users": [{
+                            "id": proxy["uuid"],
+                            "alterId": proxy.get("alterId", 0),
+                            "security": "auto",
+                        }]
+                    }]
+                }
+            })
+
+    with open("output/wxx.json", "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=4)
+    logging.info(f"[写入完成] wxx.json，节点数：{len(nodes)}")
+
+# ========== 生成 base64 订阅 ==========
 def generate_base64_subscription(nodes):
     try:
         joined_nodes = "\n".join(nodes)
         encoded = base64.b64encode(joined_nodes.encode()).decode()
-
-        os.makedirs("output", exist_ok=True)
-        
         with open("output/sub", "w", encoding="utf-8") as f:
             f.write(encoded)
-        logging.info("[写入完成] output/sub")
+        logging.info("[写入完成] sub")
     except Exception as e:
         logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
@@ -240,9 +276,8 @@ async def main():
     # 过滤去除 CN 节点
     valid_nodes = [node for node in unique_nodes if ".cn" not in node]
 
-    with open("output/unique_nodes.txt", "w", encoding="utf-8") as f:
-        for node in valid_nodes:
-            f.write(node + "\n")
+    # 确保输出文件夹存在
+    os.makedirs("output", exist_ok=True)
 
     generate_clash_config(valid_nodes)
     generate_v2ray_config(valid_nodes)
