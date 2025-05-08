@@ -11,9 +11,9 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
 # ========== 配置 ==========
-api_id = int(os.getenv("API_ID", "24301473"))
-api_hash = os.getenv("API_HASH", "da1835898984862c973ef4d4e7253a0c")
-phone_number = os.getenv("PHONE_NUMBER", "+8618685952092")
+api_id_str = os.getenv("API_ID")
+api_hash = os.getenv("API_HASH")
+phone_number = os.getenv("PHONE_NUMBER")
 
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
