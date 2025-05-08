@@ -6,8 +6,6 @@ import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
-import aiohttp
-import requests
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -44,14 +42,6 @@ def safe_b64decode(data):
     except Exception:
         return ""
 
-def get_latency(host, port):
-    try:
-        url = f"http://{host}:{port}"
-        response = requests.get(url, timeout=3)
-        return response.elapsed.total_seconds() * 1000  # 毫秒
-    except requests.RequestException:
-        return None
-
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
@@ -64,7 +54,7 @@ def parse_vmess_node(node, index):
             "type": "vmess",
             "server": conf["add"],
             "port": int(conf["port"]),
-            "uuid": conf["id"],
+            "uuid": conf.get("id", ""),  # 给 uuid 添加默认值
             "alterId": int(conf.get("aid", 0)),
             "cipher": "auto",
             "tls": conf.get("tls", "none") == "tls",
@@ -106,7 +96,7 @@ def parse_vless_node(url, index):
             "type": "vless",
             "server": host,
             "port": port,
-            "uuid": uuid,
+            "uuid": uuid,  # 确保 vless 节点也有 uuid 字段
             "encryption": "none",
             "udp": True
         }
@@ -177,62 +167,68 @@ def generate_clash_config(nodes):
 
 # ========== 生成 V2Ray 配置 ==========
 def generate_v2ray_config(nodes):
-    config = {
-        "inbounds": [{
-            "port": 1080,
-            "listen": "127.0.0.1",
-            "protocol": "socks",
-            "settings": {
-                "auth": "noauth",
-                "udp": True
-            }
-        }],
-        "outbounds": [],
-        "outboundDetour": []
-    }
-
-    for i, node in enumerate(nodes):
-        if node.startswith("vmess://"):
-            proxy = parse_vmess_node(node, i + 1)
-        elif node.startswith("trojan://"):
-            proxy = parse_trojan_node(node, i + 1)
-        elif node.startswith("vless://"):
-            proxy = parse_vless_node(node, i + 1)
-        elif node.startswith("ss://"):
-            proxy = parse_ss_node(node, i + 1)
-        else:
-            proxy = None
-
-        if proxy:
-            config["outbounds"].append({
-                "protocol": proxy["type"],
-                "settings": {
-                    "vnext": [{
-                        "address": proxy["server"],
-                        "port": proxy["port"],
-                        "users": [{
-                            "id": proxy["uuid"],
-                            "alterId": proxy.get("alterId", 0),
-                            "security": "auto",
-                        }]
-                    }]
-                }
+    v2ray_proxies = []
+    for i, proxy in enumerate(nodes):
+        if proxy["type"] == "vmess":
+            v2ray_proxies.append({
+                "v": "2",
+                "ps": proxy["name"],
+                "add": proxy["server"],
+                "port": str(proxy["port"]),
+                "id": proxy["uuid"],
+                "aid": str(proxy["alterId"]),
+                "net": "tcp",
+                "type": "none",
+                "host": "",
+                "path": "",
+                "tls": "false"
+            })
+        elif proxy["type"] == "trojan":
+            v2ray_proxies.append({
+                "v": "2",
+                "ps": proxy["name"],
+                "add": proxy["server"],
+                "port": str(proxy["port"]),
+                "id": proxy["password"],
+                "aid": "0",
+                "net": "tcp",
+                "type": "none",
+                "host": "",
+                "path": "",
+                "tls": "false"
+            })
+        elif proxy["type"] == "vless":
+            v2ray_proxies.append({
+                "v": "2",
+                "ps": proxy["name"],
+                "add": proxy["server"],
+                "port": str(proxy["port"]),
+                "id": proxy["uuid"],
+                "aid": "0",
+                "net": "tcp",
+                "type": "none",
+                "host": "",
+                "path": "",
+                "tls": "false"
+            })
+        elif proxy["type"] == "ss":
+            v2ray_proxies.append({
+                "v": "2",
+                "ps": proxy["name"],
+                "add": proxy["server"],
+                "port": str(proxy["port"]),
+                "id": proxy["password"],
+                "aid": "0",
+                "net": "tcp",
+                "type": "none",
+                "host": "",
+                "path": "",
+                "tls": "false"
             })
 
     with open("output/wxx.json", "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=4)
-    logging.info(f"[写入完成] wxx.json，节点数：{len(nodes)}")
-
-# ========== 生成 base64 订阅 ==========
-def generate_base64_subscription(nodes):
-    try:
-        joined_nodes = "\n".join(nodes)
-        encoded = base64.b64encode(joined_nodes.encode()).decode()
-        with open("output/sub", "w", encoding="utf-8") as f:
-            f.write(encoded)
-        logging.info("[写入完成] sub")
-    except Exception as e:
-        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
+        json.dump(v2ray_proxies, f, ensure_ascii=False, indent=4)
+    logging.info(f"[写入完成] wxx.json，节点数：{len(v2ray_proxies)}")
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
@@ -273,15 +269,12 @@ async def main():
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
 
-    # 过滤去除 CN 节点
-    valid_nodes = [node for node in unique_nodes if ".cn" not in node]
+    # 生成 Clash 配置
+    generate_clash_config(unique_nodes)
 
-    # 确保输出文件夹存在
-    os.makedirs("output", exist_ok=True)
-
-    generate_clash_config(valid_nodes)
+    # 生成 V2Ray 配置
+    valid_nodes = [node for node in unique_nodes if node]  # 添加额外的过滤条件
     generate_v2ray_config(valid_nodes)
-    generate_base64_subscription(valid_nodes)
 
     logging.info(f"[完成] 保存节点配置，节点数：{len(valid_nodes)}")
 
