@@ -15,6 +15,11 @@ api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 phone_number = os.getenv("PHONE_NUMBER")
 
+if not all([api_id_str, api_hash, phone_number]):
+    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 PHONE_NUMBER")
+
+api_id = int(api_id_str) 
+
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
     'config_proxy', 'freenettir', 'wxgmrjdcc', 'daily_configs'
