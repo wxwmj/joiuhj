@@ -1,3 +1,4 @@
+aiohttp
 telethon
 requests
 pyyaml
