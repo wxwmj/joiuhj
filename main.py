@@ -106,80 +106,149 @@ def parse_vless_node(url, index):
 
 def parse_ss_node(url, index):
     try:
-        raw = url[5:].split("@")
-        password = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
+        raw = url[5:]
+        if "#" in raw:
+            raw = raw.split("#")[0]
+        if "@" in raw:
+            method_password, server_part = raw.split("@")
+            method, password = base64.b64decode(method_password + '===').decode().split(":")
+        else:
+            decoded = base64.b64decode(raw + '===').decode()
+            method_password, server_part = decoded.split("@")
+            method, password = method_password.split(":")
+        server, port = server_part.split(":")
         return {
             "name": f"ss_{index}",
             "type": "ss",
-            "server": host,
-            "port": port,
+            "server": server,
+            "port": int(port),
+            "cipher": method,
             "password": password,
-            "method": "aes-256-gcm"
+            "udp": True
         }
     except Exception as e:
         logging.warning(f"[解析失败] ss：{e}")
         return None
 
-# ========== 获取Telegram消息 ==========
-async def fetch_telegram_nodes(client, group_username):
-    group = await client.get_entity(group_username)
-    all_nodes = []
-    async for message in client.iter_messages(group):
-        if message.date < datetime.now() - max_age:
-            continue
-        urls = url_pattern.findall(message.text)
-        for idx, url in enumerate(urls):
-            if "cn" not in url.lower():
-                if url.startswith("vmess://"):
-                    node = parse_vmess_node(url, idx)
-                elif url.startswith("trojan://"):
-                    node = parse_trojan_node(url, idx)
-                elif url.startswith("vless://"):
-                    node = parse_vless_node(url, idx)
-                elif url.startswith("ss://"):
-                    node = parse_ss_node(url, idx)
-                if node:
-                    all_nodes.append(node)
-    return all_nodes
+# ========== 生成 Clash 配置 ==========
+def generate_clash_config(nodes):
+    proxies = []
 
-# ========== 生成配置 ==========
-def generate_clash_config(nodes, output_dir="output"):
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    clash_config = {
-        "proxies": nodes,
-        "proxy-groups": [
-            {"name": "Auto", "type": "select", "proxies": [node["name"] for node in nodes]}
-        ]
+    for i, node in enumerate(nodes):
+        if node.startswith("vmess://"):
+            proxy = parse_vmess_node(node, i + 1)
+        elif node.startswith("trojan://"):
+            proxy = parse_trojan_node(node, i + 1)
+        elif node.startswith("vless://"):
+            proxy = parse_vless_node(node, i + 1)
+        elif node.startswith("ss://"):
+            proxy = parse_ss_node(node, i + 1)
+        else:
+            proxy = None
+
+        if proxy:
+            proxies.append(proxy)
+
+    config = {
+        "proxies": proxies,
+        "proxy-groups": [{
+            "name": "auto",
+            "type": "url-test",
+            "proxies": [p["name"] for p in proxies],
+            "url": "http://www.gstatic.com/generate_204",
+            "interval": 300
+        }],
+        "rules": ["MATCH,auto"]
     }
-    with open(os.path.join(output_dir, "wxx.yaml"), "w", encoding="utf-8") as f:
-        yaml.dump(clash_config, f, default_flow_style=False, allow_unicode=True)
 
-def generate_v2ray_config(nodes, output_dir="output"):
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # 确保输出文件夹存在
+    os.makedirs("output", exist_ok=True)
+
+    # 写入 wxx.yaml
+    with open("output/wxx.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(config, f, allow_unicode=True)
+    logging.info(f"[写入完成] output/wxx.yaml，节点数：{len(proxies)}")
+
+# ========== 生成 V2Ray 配置 ==========
+def generate_v2ray_config(nodes):
+    # 生成 V2Ray 结构的占位符
     v2ray_config = {
-        "inbounds": [{"port": 1080, "listen": "127.0.0.1", "protocol": "socks", "settings": {"auth": "noauth", "udp": True}}],
-        "outbounds": [{"protocol": node["type"], "settings": {"vnext": [{"address": node["server"], "port": node["port"], "users": [{"id": node["uuid"], "alterId": node["alterId"] if "alterId" in node else 0, "security": node["cipher"]}] }]}} for node in nodes],
+        "inbounds": [],
+        "outbounds": [],
+        "routing": {},
     }
-    with open(os.path.join(output_dir, "wxx.json"), "w", encoding="utf-8") as f:
-        json.dump(v2ray_config, f, ensure_ascii=False, indent=2)
 
-# ========== 主程序 ==========
+    os.makedirs("output", exist_ok=True)
+    
+    with open("output/wxx.json", "w", encoding="utf-8") as f:
+        json.dump(v2ray_config, f, indent=4)
+    logging.info("[写入完成] output/wxx.json")
+
+# ========== 生成订阅 Base64 ==========
+def generate_base64_subscription(nodes):
+    try:
+        joined_nodes = "\n".join(nodes)
+        encoded = base64.b64encode(joined_nodes.encode()).decode()
+
+        os.makedirs("output", exist_ok=True)
+        
+        with open("output/sub", "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logging.info("[写入完成] output/sub")
+    except Exception as e:
+        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
+
+# ========== 抓取 Telegram 消息 ==========
+async def fetch_messages():
+    client = TelegramClient('session', api_id, api_hash)
+    await client.start(phone_number)
+
+    now = datetime.now(timezone.utc)
+    since = now - max_age
+    all_links = set()
+
+    for username in group_usernames:
+        try:
+            entity = await client.get_entity(username)
+            history = await client(GetHistoryRequest(
+                peer=entity,
+                limit=100,
+                offset_date=None,
+                offset_id=0,
+                max_id=0,
+                min_id=0,
+                add_offset=0,
+                hash=0
+            ))
+            for message in history.messages:
+                if message.date < since:
+                    continue
+                found = url_pattern.findall(message.message or '')
+                all_links.update(found)
+        except Exception as e:
+            logging.warning(f"[错误] 获取 {username} 失败：{e}")
+
+    logging.info(f"[完成] 抓取链接数: {len(all_links)}")
+    return list(all_links)
+
+# ========== 主函数 ==========
 async def main():
-    async with TelegramClient("session", api_id, api_hash) as client:
-        all_nodes = []
-        for group_username in group_usernames:
-            nodes = await fetch_telegram_nodes(client, group_username)
-            all_nodes.extend(nodes)
+    logging.info("[启动] 开始抓取 Telegram 节点")
+    raw_nodes = await fetch_messages()
+    unique_nodes = list(set(raw_nodes))
 
-        # 生成配置
-        generate_clash_config(all_nodes)
-        generate_v2ray_config(all_nodes)
+    # 过滤去除 CN 节点
+    valid_nodes = [node for node in unique_nodes if ".cn" not in node]
+
+    with open("output/unique_nodes.txt", "w", encoding="utf-8") as f:
+        for node in valid_nodes:
+            f.write(node + "\n")
+
+    generate_clash_config(valid_nodes)
+    generate_v2ray_config(valid_nodes)
+    generate_base64_subscription(valid_nodes)
+
+    logging.info(f"[完成] 保存节点配置，节点数：{len(valid_nodes)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
