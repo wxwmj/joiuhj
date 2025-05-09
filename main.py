@@ -167,11 +167,11 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    client = None
+    client = TelegramClient('bot', api_id, api_hash)
+
     try:
-        # 使用 Bot Token 登录
-        client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
-        await client.start()
+        # 使用 Bot Token 登录，修复未启动协程的问题
+        await client.start(bot_token=bot_token)
         
         now = datetime.now(timezone.utc)
         since = now - max_age
