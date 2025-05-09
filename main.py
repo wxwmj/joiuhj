@@ -130,6 +130,14 @@ def parse_ss_node(url, index):
         logging.warning(f"[解析失败] ss：{e}")
         return None
 
+# ========== 过滤 cn 节点 ==========
+def filter_cn_nodes(nodes):
+    filtered_nodes = []
+    for node in nodes:
+        if "cn" not in node.get("server", "").lower():
+            filtered_nodes.append(node)
+    return filtered_nodes
+
 # ========== 生成 Clash 配置 ==========
 def generate_clash_config(nodes):
     proxies = []
@@ -148,6 +156,9 @@ def generate_clash_config(nodes):
 
         if proxy:
             proxies.append(proxy)
+
+    # 过滤掉含有 "cn" 的节点
+    proxies = filter_cn_nodes(proxies)
 
     config = {
         "proxies": proxies,
@@ -208,12 +219,13 @@ async def fetch_messages():
 async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
     raw_nodes = await fetch_messages()
-    unique_nodes = list(set(raw_nodes))
+    unique_nodes = list(set(raw_nodes))  # 去重
 
     with open("unique_nodes.txt", "w", encoding="utf-8") as f:
         for node in unique_nodes:
             f.write(node + "\n")
 
+    # 生成 Clash 配置
     generate_clash_config(unique_nodes)
 
     # 生成 base64 编码订阅
