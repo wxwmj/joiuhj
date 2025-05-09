@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
-# ========== 配置 ==========
+# ========== 环境变量配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 session_b64 = os.getenv("SESSION_B64")
@@ -18,39 +18,124 @@ if not all([api_id_str, api_hash, session_b64]):
 
 api_id = int(api_id_str)
 
-# Decode SESSION_B64 to get the actual session binary data
+# 解码 SESSION_B64 并写入本地 session 文件
 session_file_path = "session.session"
 with open(session_file_path, "wb") as session_file:
     session_file.write(base64.b64decode(session_b64))
 
 # ========== 日志配置 ==========
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(
+    level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
-# ========== Telegram 群组链接（去重） ==========
-group_links = list(set([
-    'https://t.me/VPN365R', 
-    'https://t.me/ConfigsHUB2', 
+# ========== 需要抓取的 Telegram 群组链接 ==========
+group_links = [
+    'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
-    'https://t.me/config_proxy', 
-    'https://t.me/freenettir', 
-    'https://t.me/oneclickvpnkeys', 
-    'https://t.me/entryNET', 
+    'https://t.me/config_proxy',
+    'https://t.me/freenettir',
+    'https://t.me/oneclickvpnkeys',
+    'https://t.me/entryNET',
     'https://t.me/daily_configs',
-    'https://t.me/VPN365R', 
-    'https://t.me/ConfigsHUB2', 
-    'https://t.me/free_outline_keys',
-    'https://t.me/config_proxy', 
-    # 可添加更多
-]))
 
-# 匹配链接的正则表达式
+    # 以下是重复项（可选保留注释避免误加）
+    # 'https://t.me/VPN365R',          # 🚫 重复
+    # 'https://t.me/config_proxy',     # 🚫 重复
+    # 'https://t.me/entryNET',         # 🚫 重复
+]
+
+# 去重处理并输出唯一群组数
+group_links = list(set(group_links))
+logging.info(f"[校验] 群组链接唯一数: {len(group_links)}")
+
+# ========== 匹配节点链接的正则 ==========
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
-# 最大抓取时间范围
+# ========== 抓取时间范围（近6小时） ==========
 max_age = timedelta(hours=6)
+
+# ========== 节点解析 ==========
+def parse_vmess_node(node, index):
+    try:
+        raw = base64.b64decode(node[8:])
+        conf = json.loads(raw)
+        return {
+            "name": f"vmess_{index}",
+            "type": "vmess",
+            "server": conf["add"],
+            "port": int(conf["port"]),
+            "uuid": conf["id"],
+            "alterId": int(conf.get("aid", 0)),
+            "cipher": "auto",
+            "tls": conf.get("tls", "none") == "tls",
+        }
+    except Exception as e:
+        logging.warning(f"[解析失败] vmess：{e}")
+        return None
+
+def parse_trojan_node(url, index):
+    try:
+        raw = url[9:].split("@")
+        password = raw[0]
+        host, port = raw[1].split("?")[0].split(":")
+        return {
+            "name": f"trojan_{index}",
+            "type": "trojan",
+            "server": host,
+            "port": int(port),
+            "password": password,
+            "udp": True
+        }
+    except Exception as e:
+        logging.warning(f"[解析失败] trojan：{e}")
+        return None
+
+def parse_vless_node(url, index):
+    try:
+        raw = url[8:].split("@")
+        uuid = raw[0]
+        host, port = raw[1].split("?")[0].split(":")
+        return {
+            "name": f"vless_{index}",
+            "type": "vless",
+            "server": host,
+            "port": int(port),
+            "uuid": uuid,
+            "encryption": "none",
+            "udp": True
+        }
+    except Exception as e:
+        logging.warning(f"[解析失败] vless：{e}")
+        return None
+
+def parse_ss_node(url, index):
+    try:
+        raw = url[5:]
+        if "#" in raw:
+            raw = raw.split("#")[0]
+        if "@" in raw:
+            method_password, server_part = raw.split("@")
+            method, password = base64.b64decode(method_password + '===').decode().split(":")
+        else:
+            decoded = base64.b64decode(raw + '===').decode()
+            method_password, server_part = decoded.split("@")
+            method, password = method_password.split(":")
+        server, port = server_part.split(":")
+        return {
+            "name": f"ss_{index}",
+            "type": "ss",
+            "server": server,
+            "port": int(port),
+            "cipher": method,
+            "password": password,
+            "udp": True
+        }
+    except Exception as e:
+        logging.warning(f"[解析失败] ss：{e}")
+        return None
 
 # ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
@@ -97,7 +182,7 @@ async def fetch_messages():
         logging.info(f"[完成] 抓取链接数: {len(all_links)}")
         return list(all_links)
     except Exception as e:
-        logging.error(f"登录失败: {e}")
+        logging.error(f"[登录失败]：{e}")
         return []
 
 # ========== 主函数 ==========
@@ -105,7 +190,6 @@ async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
-
     await generate_subscribe_file(unique_nodes)
     logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
 
