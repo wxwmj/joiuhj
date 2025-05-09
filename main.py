@@ -4,8 +4,9 @@ import logging
 import json
 import yaml
 import re
-import asyncio
+import socket
 from datetime import datetime, timedelta, timezone
+from ipwhois import IPWhois
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
@@ -42,6 +43,18 @@ url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[
 # 最大抓取时间范围（修改为6小时）
 max_age = timedelta(hours=6)
 
+# ========== 判断节点是否为 CN ==========
+def is_china_node(host):
+    try:
+        ip = socket.gethostbyname(host)
+        ipwhois = IPWhois(ip)
+        result = ipwhois.lookup_rdap()
+        country = result.get('network', {}).get('country', '')
+        return country == 'CN'
+    except Exception as e:
+        logging.warning(f"[错误] 判断节点 {host} 是否为CN节点时失败：{e}")
+        return False
+
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
@@ -49,10 +62,13 @@ def parse_vmess_node(node, index):
         if not raw:
             return None
         conf = json.loads(raw)
+        server = conf["add"]
+        if is_china_node(server):  # 排除CN节点
+            return None
         return {
             "name": f"vmess_{index}",
             "type": "vmess",
-            "server": conf["add"],
+            "server": server,
             "port": int(conf["port"]),
             "uuid": conf["id"],
             "alterId": int(conf.get("aid", 0)),
@@ -71,6 +87,8 @@ def parse_trojan_node(url, index):
         if len(host_port) < 2:
             return None
         host, port = host_port[0], int(host_port[1])
+        if is_china_node(host):  # 排除CN节点
+            return None
         return {
             "name": f"trojan_{index}",
             "type": "trojan",
@@ -91,6 +109,8 @@ def parse_vless_node(url, index):
         if len(host_port) < 2:
             return None
         host, port = host_port[0], int(host_port[1])
+        if is_china_node(host):  # 排除CN节点
+            return None
         return {
             "name": f"vless_{index}",
             "type": "vless",
@@ -117,6 +137,8 @@ def parse_ss_node(url, index):
             method_password, server_part = decoded.split("@")
             method, password = method_password.split(":")
         server, port = server_part.split(":")
+        if is_china_node(server):  # 排除CN节点
+            return None
         return {
             "name": f"ss_{index}",
             "type": "ss",
@@ -211,23 +233,26 @@ async def main():
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
 
+    # 过滤掉 CN 节点
+    filtered_nodes = [node for node in unique_nodes if not is_china_node(node.split("://")[1].split(":")[0])]
+
     with open("sub", "w", encoding="utf-8") as f:  # 写入 sub
-        for node in unique_nodes:
+        for node in filtered_nodes:
             f.write(node + "\n")
 
-    generate_clash_config(unique_nodes)
+    generate_clash_config(filtered_nodes)
 
     # 生成 wxx.json
     try:
         with open("wxx.json", "w", encoding="utf-8") as f:
-            json.dump(unique_nodes, f, ensure_ascii=False, indent=4)
+            json.dump(filtered_nodes, f, ensure_ascii=False, indent=4)
         logging.info("[写入完成] wxx.json")
     except Exception as e:
         logging.warning(f"[错误] 生成 wxx.json 失败：{e}")
 
     # 生成 base64 编码订阅
     try:
-        joined_nodes = "\n".join(unique_nodes)
+        joined_nodes = "\n".join(filtered_nodes)
         encoded = base64.b64encode(joined_nodes.encode()).decode()
         with open("subscribe_base64.txt", "w", encoding="utf-8") as f:
             f.write(encoded)
@@ -235,7 +260,6 @@ async def main():
     except Exception as e:
         logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
-    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+    logging.info(f"[完成] 保存节点配置，节点数：{len(filtered_nodes)}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
