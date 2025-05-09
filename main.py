@@ -14,10 +14,10 @@ from telethon.tl.functions.messages import GetHistoryRequest
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
+session_b64 = os.getenv("SESSION_B64")
 
-if not all([api_id_str, api_hash, bot_token]):
-    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 BOT_TOKEN")
+if not all([api_id_str, api_hash, session_b64]):
+    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 SESSION_B64")
 
 api_id = int(api_id_str)
 
