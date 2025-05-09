@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO,
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
-# 原始群组链接（可含重复）
+# 原始群组链接（包含重复项）
 raw_group_links = [
     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
@@ -41,15 +41,11 @@ raw_group_links = [
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
-    'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
-     'https://t.me/VPN365R',
-    'https://t.me/ConfigsHUB2',
-    'https://t.me/free_outline_keys',
-    'https://t.me/config_proxy',
+    'https://t.me/daily_configs',  # 重复的群组链接
+    'https://t.me/DailyV2RY',  # 重复的群组链接
 ]
 
-# 去重处理，并记录重复项
+# 去重处理，并将重复的链接用注释标记
 group_links = []
 seen = set()
 for link in raw_group_links:
@@ -58,12 +54,11 @@ for link in raw_group_links:
         seen.add(link)
     else:
         # 将重复的链接注释掉
-        raw_group_links[raw_group_links.index(link)] = f"# {link}"  # 将重复的链接注释掉
+        raw_group_links[raw_group_links.index(link)] = f"# {link}  # 重复的群组链接"
 
 # 现在可以查看注释掉的群组链接
-logging.info("处理后的群组链接: ")
 for link in raw_group_links:
-    logging.info(link)
+    print(link)  # 输出最终结果
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
