@@ -43,6 +43,9 @@ group_links = [
     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
+    'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
+    'https://t.me/free_outline_keys',
 
     # 以下是重复项（可选保留注释避免误加）
     # 'https://t.me/VPN365R',          # 🚫 重复
