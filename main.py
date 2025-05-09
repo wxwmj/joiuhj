@@ -1,3 +1,13 @@
+import os  # Ensure os module is imported
+import base64
+import logging
+import json
+import re  # Ensure re module is imported for regular expressions
+import asyncio
+from datetime import datetime, timedelta, timezone
+from telethon import TelegramClient
+from telethon.tl.functions.messages import GetHistoryRequest
+
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
@@ -29,9 +39,6 @@ group_links = [
     'https://t.me/oneclickvpnkeys', 
     'https://t.me/entryNET', 
     'https://t.me/daily_configs', 
-     'https://t.me/VPN365R', 
-    'https://t.me/ConfigsHUB2', 
-    'https://t.me/free_outline_keys',
 ]
 
 # 去重：使用 set 保证链接唯一
