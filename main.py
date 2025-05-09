@@ -1,12 +1,9 @@
 import os
-import re
-import asyncio
 import base64
 import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
-
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
@@ -20,8 +17,16 @@ if not all([api_id_str, api_hash, session_b64]):
 
 api_id = int(api_id_str)
 
-# Decode SESSION_B64 to get the actual session string
-session_file = base64.b64decode(session_b64).decode('utf-8')
+# Decode SESSION_B64 to get the actual session binary data
+session_file_path = "session.session"
+with open(session_file_path, "wb") as session_file:
+    session_file.write(base64.b64decode(session_b64))
+
+# ========== 日志配置 ==========
+logging.basicConfig(level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
+)
 
 # 需要抓取的 Telegram 群组
 group_usernames = [
@@ -34,20 +39,6 @@ url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[
 
 # 最大抓取时间范围
 max_age = timedelta(hours=12)
-
-# ========== 日志配置 ==========
-logging.basicConfig(level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
-)
-
-# ========== 工具函数 ==========
-def safe_b64decode(data):
-    try:
-        data += '=' * (-len(data) % 4)  # 填补 base64 padding
-        return base64.b64decode(data).decode()
-    except Exception:
-        return ""
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
@@ -174,7 +165,7 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    client = TelegramClient(session_file, api_id, api_hash)
+    client = TelegramClient(session_file_path, api_id, api_hash)
 
     try:
         # 启动客户端
