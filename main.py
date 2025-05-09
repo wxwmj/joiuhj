@@ -13,12 +13,10 @@ from telethon.tl.functions.messages import GetHistoryRequest
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
-phone_number = os.getenv("PHONE_NUMBER")
 bot_token = os.getenv("BOT_TOKEN")
-session_b64 = os.getenv("SESSION_B64")
 
-if not all([api_id_str, api_hash, phone_number, bot_token, session_b64]):
-    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH、PHONE_NUMBER、BOT_TOKEN 或 SESSION_B64")
+if not all([api_id_str, api_hash, bot_token]):
+    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 BOT_TOKEN")
 
 api_id = int(api_id_str)
 
@@ -169,36 +167,42 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    client = TelegramClient('session', api_id, api_hash)
-    await client.start(phone_number)
+    client = None
+    try:
+        # 使用 Bot Token 登录
+        client = TelegramClient('bot', api_id, api_hash).start(bot_token=bot_token)
+        await client.start()
+        
+        now = datetime.now(timezone.utc)
+        since = now - max_age
+        all_links = set()
 
-    now = datetime.now(timezone.utc)
-    since = now - max_age
-    all_links = set()
+        for username in group_usernames:
+            try:
+                entity = await client.get_entity(username)
+                history = await client(GetHistoryRequest(
+                    peer=entity,
+                    limit=100,
+                    offset_date=None,
+                    offset_id=0,
+                    max_id=0,
+                    min_id=0,
+                    add_offset=0,
+                    hash=0
+                ))
+                for message in history.messages:
+                    if message.date < since:
+                        continue
+                    found = url_pattern.findall(message.message or '')
+                    all_links.update(found)
+            except Exception as e:
+                logging.warning(f"[错误] 获取 {username} 失败：{e}")
 
-    for username in group_usernames:
-        try:
-            entity = await client.get_entity(username)
-            history = await client(GetHistoryRequest(
-                peer=entity,
-                limit=100,
-                offset_date=None,
-                offset_id=0,
-                max_id=0,
-                min_id=0,
-                add_offset=0,
-                hash=0
-            ))
-            for message in history.messages:
-                if message.date < since:
-                    continue
-                found = url_pattern.findall(message.message or '')
-                all_links.update(found)
-        except Exception as e:
-            logging.warning(f"[错误] 获取 {username} 失败：{e}")
-
-    logging.info(f"[完成] 抓取链接数: {len(all_links)}")
-    return list(all_links)
+        logging.info(f"[完成] 抓取链接数: {len(all_links)}")
+        return list(all_links)
+    except Exception as e:
+        logging.error(f"登录失败: {e}")
+        return []
 
 # ========== 主函数 ==========
 async def main():
