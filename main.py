@@ -6,17 +6,16 @@ import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
-
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.sessions import StringSession
 
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
-bot_token = os.getenv("BOT_TOKEN")
 
-if not all([api_id_str, api_hash, bot_token]):
-    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 BOT_TOKEN")
+if not all([api_id_str, api_hash]):
+    raise ValueError("❌ 缺少环境变量：API_ID 或 API_HASH")
 
 api_id = int(api_id_str)
 
@@ -167,11 +166,11 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    client = TelegramClient('bot', api_id, api_hash)
-
+    # 使用用户凭证（登录会话）
+    client = TelegramClient(StringSession(), api_id, api_hash)
+    
     try:
-        # 使用 Bot Token 登录，修复未启动协程的问题
-        await client.start(bot_token=bot_token)
+        await client.start()
         
         now = datetime.now(timezone.utc)
         since = now - max_age
