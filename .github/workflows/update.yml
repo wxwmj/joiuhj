@@ -2,8 +2,8 @@ name: Auto Update Subscriptions
 
 on:
   schedule:
-    - cron: '0 * * * *'  # 每小时执行一次
-  workflow_dispatch:  # 也支持手动触发
+    - cron: '0 */6 * * *'  # 每6小时触发一次（UTC时间）
+  workflow_dispatch:
 
 jobs:
   build:
