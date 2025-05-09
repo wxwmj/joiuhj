@@ -2,7 +2,7 @@ name: Auto Update Subscriptions
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 * * * *'  # 每小时执行一次
   workflow_dispatch:
 
 jobs:
@@ -10,29 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # 第一步：检出代码
     - name: Checkout
       uses: actions/checkout@v3
 
+    # 第二步：设置 Python 环境
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
+    # 第三步：安装依赖
     - name: Install dependencies
       run: pip install -r requirements.txt
 
-    - name: Decode SESSION_B64 and restore session
-      run: |
-        echo "${{ secrets.SESSION_B64 }}" | base64 --decode > session.session
-        echo "SESSION_B64 decoded and session.session restored."
-
+    # 第四步：运行脚本并传递环境变量
     - name: Run script
       env:
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
         PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
+        SESSION_B64: ${{ secrets.SESSION_B64 }}  # 传递 SESSION_B64 环境变量
       run: python main.py
 
+    # 第五步：提交并推送更改
     - name: Commit & Push
       run: |
         git config user.name "github-actions"
