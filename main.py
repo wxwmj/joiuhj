@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO,
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
-# 原始群组链接（包含重复项）
+# 原始群组链接（可含重复）
 raw_group_links = [
     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
@@ -40,31 +40,29 @@ raw_group_links = [
     'https://t.me/oneclickvpnkeys',
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
-    'https://t.me/VPN365R',
+     'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
+     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
     'https://t.me/config_proxy',
-    'https://t.me/freenettir',
-]  # 注意这里已经关闭了括号
+]
 
-# 去重处理，并将重复的链接用注释标记
+# 去重处理，并记录重复项
 group_links = []
 seen = set()
-for link in raw_group_links[:]:  # 使用切片来避免修改原列表
+for link in raw_group_links:
     if link not in seen:
         group_links.append(link)
         seen.add(link)
     else:
-        # 将重复的链接注释掉
-        raw_group_links[raw_group_links.index(link)] = f"# {link}  # 重复的群组链接"
-
-# 现在可以查看注释掉的群组链接
-for link in raw_group_links:
-    print(link)  # 输出最终结果
+        logging.warning(f"重复群组链接已忽略：{link}")
 
 # 匹配链接的正则表达式
-url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
+url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
+
+# 最大抓取时间范围（修改为6小时）
+max_age = timedelta(hours=6)
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
@@ -154,66 +152,6 @@ def parse_ss_node(url, index):
         logging.debug(f"解析 ss 失败: {e}")
         return None
 
-def parse_tuic_node(url, index):
-    try:
-        raw = url[6:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"tuic_{index}",
-            "type": "tuic",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
-        return None
-
-def parse_hysteria_node(url, index):
-    try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria_{index}",
-            "type": "hysteria",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
-        return None
-
-def parse_hysteria2_node(url, index):
-    try:
-        raw = url[11:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria2_{index}",
-            "type": "hysteria2",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria2 失败: {e}")
-        return None
-
 # ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
     try:
@@ -273,7 +211,7 @@ async def main():
     logging.info("🚀 开始抓取 Telegram 节点")
     
     client = TelegramClient(session_file_path, api_id, api_hash)
-    
+
     group_stats = {}  # 用于统计每个群组的结果
 
     try:
@@ -281,44 +219,27 @@ async def main():
         await client.start()
 
         now = datetime.now(timezone.utc)
+        since = now - max_age
         all_links = set()
 
-        # 设置时间范围循环：从1小时到24小时
-        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
-        for hours in time_ranges:
-            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
-            since = now - timedelta(hours=hours)
-            group_stats.clear()  # 清除之前的统计数据
+        # 并发抓取每个群组的消息
+        results = await fetch_all_messages_with_rate_limit(client, group_links)
 
-            # 并发抓取每个群组的消息
-            results = await fetch_all_messages_with_rate_limit(client, group_links)
+        for link, messages in results:
+            group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
 
-            # 如果没有符合要求的节点，进入下一个时间范围
-            any_valid_node = False
+            for message in messages:
+                if message.date < since:
+                    continue
+                found = url_pattern.findall(message.message or '')
+                all_links.update(found)
 
-            for link, messages in results:
-                group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
-
-                for message in messages:
-                    if message.date < since:
-                        continue
-                    found = url_pattern.findall(message.message or '')
-                    all_links.update(found)
-
-                    # 统计成功的节点
-                    for idx, node in enumerate(found):
-                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
-                            group_stats[link]["success"] += 1
-                        else:
-                            group_stats[link]["failed"] += 1
-
-            if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
-                any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
-                break  # 退出循环，抓取已完成
-
-        if not any_valid_node:
-            logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
-            return  # 如果没有符合要求的节点，停止脚本执行
+                # 统计成功的节点
+                for idx, node in enumerate(found):
+                    if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx):
+                        group_stats[link]["success"] += 1
+                    else:
+                        group_stats[link]["failed"] += 1
 
         logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
         unique_nodes = list(set(all_links))
