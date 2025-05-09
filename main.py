@@ -43,22 +43,32 @@ raw_group_links = [
     'https://t.me/DailyV2RY',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
-      'https://t.me/VPN365R',
+    'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
 ]
 
-# 去重处理，并记录重复项
+# ========== 去重处理，并注释重复项 ==========
 group_links = []
 seen = set()
+output_lines = []
+
 for link in raw_group_links:
     if link not in seen:
         group_links.append(link)
         seen.add(link)
+        output_lines.append(link)
     else:
-        logging.warning(f"重复群组链接已忽略：{link}")
+        # 对重复项进行注释
+        annotated_line = f"{link}  # 重复，已忽略"
+        output_lines.append(annotated_line)
+        logging.warning(f"⚠️ 重复群组链接已忽略：{link}")
 
-# 匹配链接的正则表达式
+# 输出去重后的群组链接和注释说明
+for line in output_lines:
+    print(line)
+
+# ========== 匹配链接的正则表达式 ==========
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
 
 # ========== 解析节点 ==========
@@ -278,58 +288,47 @@ async def main():
         now = datetime.now(timezone.utc)
         all_links = set()
 
-        # 设置时间范围循环：从1小时到24小时
-        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
-        for hours in time_ranges:
-            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
-            since = now - timedelta(hours=hours)
-            group_stats.clear()  # 清除之前的统计数据
+        # 设置时间范围循环：近24小时
+        fetch_results = await fetch_all_messages_with_rate_limit(client, group_links)
 
-            # 并发抓取每个群组的消息
-            results = await fetch_all_messages_with_rate_limit(client, group_links)
+        for group_link, messages in fetch_results:
+            for message in messages:
+                # 如果是节点链接（vmess://、ss://、trojan://等格式），进行解析
+                if url_pattern.match(message.text):
+                    for index, node_url in enumerate(url_pattern.findall(message.text)):
+                        parsed_node = None
+                        if node_url.startswith("vmess://"):
+                            parsed_node = parse_vmess_node(node_url, index)
+                        elif node_url.startswith("trojan://"):
+                            parsed_node = parse_trojan_node(node_url, index)
+                        elif node_url.startswith("vless://"):
+                            parsed_node = parse_vless_node(node_url, index)
+                        elif node_url.startswith("ss://"):
+                            parsed_node = parse_ss_node(node_url, index)
+                        elif node_url.startswith("tuic://"):
+                            parsed_node = parse_tuic_node(node_url, index)
+                        elif node_url.startswith("hysteria://"):
+                            parsed_node = parse_hysteria_node(node_url, index)
+                        elif node_url.startswith("hysteria2://"):
+                            parsed_node = parse_hysteria2_node(node_url, index)
+                        
+                        if parsed_node:
+                            group_stats[group_link] = group_stats.get(group_link, [])
+                            group_stats[group_link].append(parsed_node)
 
-            # 如果没有符合要求的节点，进入下一个时间范围
-            any_valid_node = False
-
-            for link, messages in results:
-                group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
-
-                for message in messages:
-                    if message.date < since:
-                        continue
-                    found = url_pattern.findall(message.message or '')
-                    all_links.update(found)
-
-                    # 统计成功的节点
-                    for idx, node in enumerate(found):
-                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
-                            group_stats[link]["success"] += 1
-                        else:
-                            group_stats[link]["failed"] += 1
-
-            if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
-                any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
-                break  # 退出循环，抓取已完成
-
-        if not any_valid_node:
-            logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
-            return  # 如果没有符合要求的节点，停止脚本执行
-
-        logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
-        unique_nodes = list(set(all_links))
-
-        # 仅生成 sub 文件
-        await generate_subscribe_file(unique_nodes)
-
-        logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
-
-        # 输出群组统计信息
-        logging.info("📊 抓取统计:")
-        for group_link, stats in group_stats.items():
-            logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
+        # 输出所有群组的解析结果
+        logging.info(f"共抓取到 {len(group_stats)} 个群组的节点配置")
+        
+        # 生成订阅文件
+        all_nodes = [json.dumps(node, ensure_ascii=False) for group in group_stats.values() for node in group]
+        await generate_subscribe_file(all_nodes)
 
     except Exception as e:
-        logging.error(f"🛑 登录失败: {e}")
+        logging.error(f"出现错误: {e}")
+    finally:
+        # 结束时关闭客户端
+        await client.disconnect()
 
-if __name__ == "__main__":
+# 启动程序
+if __name__ == '__main__':
     asyncio.run(main())
