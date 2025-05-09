@@ -163,6 +163,8 @@ async def generate_subscribe_file(nodes):
 async def fetch_messages():
     client = TelegramClient(session_file_path, api_id, api_hash)
 
+    group_stats = {}  # 用于统计每个群组的结果
+
     try:
         # 启动客户端
         await client.start()
@@ -172,6 +174,8 @@ async def fetch_messages():
         all_links = set()
 
         for link in group_links:
+            group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
+
             try:
                 entity = await client.get_entity(link)  # 使用群组链接获取实体
                 history = await client(GetHistoryRequest(
@@ -189,25 +193,39 @@ async def fetch_messages():
                         continue
                     found = url_pattern.findall(message.message or '')
                     all_links.update(found)
+
+                    # 统计成功的节点
+                    for idx, node in enumerate(found):
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx):
+                            group_stats[link]["success"] += 1
+                        else:
+                            group_stats[link]["failed"] += 1
+
             except Exception as e:
                 logging.warning(f"[错误] 获取 {link} 失败：{e}")
+                group_stats[link]["failed"] += 1
 
         logging.info(f"[完成] 抓取链接数: {len(all_links)}")
-        return list(all_links)
+        return list(all_links), group_stats
     except Exception as e:
         logging.error(f"登录失败: {e}")
-        return []
+        return [], group_stats
 
 # ========== 主函数 ==========
 async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
-    raw_nodes = await fetch_messages()
+    raw_nodes, group_stats = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
 
     # 仅生成 sub 文件
     await generate_subscribe_file(unique_nodes)
 
     logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+
+    # 输出群组统计信息
+    logging.info("\n[抓取统计信息]:")
+    for group_link, stats in group_stats.items():
+        logging.info(f"{group_link}: 成功节点数={stats['success']}, 失败节点数={stats['failed']}")
 
 if __name__ == "__main__":
     asyncio.run(main())
