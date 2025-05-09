@@ -4,7 +4,7 @@ import logging
 import json
 import re
 import asyncio
-import random
+import aiohttp
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -13,6 +13,10 @@ from telethon.tl.functions.messages import GetHistoryRequest
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 session_b64 = os.getenv("SESSION_B64")
+
+MAX_RETRIES = 3  # 最大重试次数
+RETRY_DELAY = 2  # 重试延迟时间（秒）
+MAX_AGE = timedelta(hours=6)  # 最大抓取时间范围
 
 if not all([api_id_str, api_hash, session_b64]):
     raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 SESSION_B64")
@@ -26,9 +30,8 @@ with open(session_file_path, "wb") as session_file:
 
 # ========== 日志配置 ==========
 logging.basicConfig(level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
-)
+                    format='%(asctime)s [%(levelname)s] %(message)s',
+                    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()])
 
 # 原始群组链接（可含重复）
 raw_group_links = [
@@ -40,8 +43,8 @@ raw_group_links = [
     'https://t.me/oneclickvpnkeys',
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
-     'https://t.me/VPN365R',
-    'https://t.me/ConfigsHUB2',
+    'https://t.me/VPN365R',  # 重复示例
+    'https://t.me/entryNET',  # 重复示例
 ]
 
 # 去重处理，并记录重复项
@@ -52,13 +55,10 @@ for link in raw_group_links:
         group_links.append(link)
         seen.add(link)
     else:
-        logging.warning(f"重复群组链接已忽略：{link}")
+        logging.warning(f"[去重] 重复电报群链接已忽略：{link}")
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
-
-# 最大抓取时间范围（修改为6小时）
-max_age = timedelta(hours=6)
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
@@ -78,7 +78,7 @@ def parse_vmess_node(node, index):
             "tls": conf.get("tls", "none") == "tls",
         }
     except Exception as e:
-        logging.debug(f"解析 vmess 失败: {e}")
+        logging.warning(f"[解析失败] vmess：{e}")
         return None
 
 def parse_trojan_node(url, index):
@@ -98,7 +98,7 @@ def parse_trojan_node(url, index):
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 trojan 失败: {e}")
+        logging.warning(f"[解析失败] trojan：{e}")
         return None
 
 def parse_vless_node(url, index):
@@ -119,7 +119,7 @@ def parse_vless_node(url, index):
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 vless 失败: {e}")
+        logging.warning(f"[解析失败] vless：{e}")
         return None
 
 def parse_ss_node(url, index):
@@ -145,7 +145,7 @@ def parse_ss_node(url, index):
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 ss 失败: {e}")
+        logging.warning(f"[解析失败] ss：{e}")
         return None
 
 # ========== 生成订阅文件 ==========
@@ -156,102 +156,80 @@ async def generate_subscribe_file(nodes):
         encoded = base64.b64encode(joined_nodes.encode()).decode()
         with open("sub", "w", encoding="utf-8") as f:
             f.write(encoded)
-        logging.info("🎉 订阅文件生成完毕")
+        logging.info("[写入完成] sub")
     except Exception as e:
-        logging.error(f"生成订阅失败: {e}")
-
-# ========== 错误处理与重试机制 ==========
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # 每次重试的延迟时间，单位秒
-
-async def fetch_with_retries(fetch_function, *args, **kwargs):
-    """添加重试机制，处理瞬时网络问题"""
-    for attempt in range(MAX_RETRIES):
-        try:
-            return await fetch_function(*args, **kwargs)
-        except Exception as e:
-            if attempt < MAX_RETRIES - 1:
-                delay = random.uniform(RETRY_DELAY, RETRY_DELAY * 2)  # 随机延迟
-                logging.debug(f"第{attempt + 1}次重试失败: {e}，等待 {delay:.2f} 秒")
-                await asyncio.sleep(delay)
-            else:
-                logging.error(f"重试失败: {e}")
-                raise  # 如果重试用尽，抛出异常
+        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
 # ========== 抓取 Telegram 消息 ==========
-async def fetch_messages_for_group(client, link):
-    try:
-        entity = await client.get_entity(link)
-        history = await client(GetHistoryRequest(
-            peer=entity,
-            limit=100,
-            offset_date=None,
-            offset_id=0,
-            max_id=0,
-            min_id=0,
-            add_offset=0,
-            hash=0
-        ))
-        return link, history.messages
-    except Exception as e:
-        logging.error(f"抓取 {link} 消息失败: {e}")
-        return link, []
-
-async def fetch_all_messages_with_rate_limit(client, group_links):
-    tasks = [fetch_messages_for_group(client, link) for link in group_links]
-    results = await asyncio.gather(*tasks)
-    return results
-
-# ========== 主函数 ==========
-async def main():
-    logging.info("🚀 开始抓取 Telegram 节点")
-    
+async def fetch_messages():
     client = TelegramClient(session_file_path, api_id, api_hash)
 
     group_stats = {}  # 用于统计每个群组的结果
+
+    async def fetch_group_data(link):
+        retries = 0
+        while retries < MAX_RETRIES:
+            try:
+                entity = await client.get_entity(link)
+                history = await client(GetHistoryRequest(
+                    peer=entity,
+                    limit=100,
+                    offset_date=None,
+                    offset_id=0,
+                    max_id=0,
+                    min_id=0,
+                    add_offset=0,
+                    hash=0
+                ))
+                found = url_pattern.findall(message.message or '')
+                return found
+            except Exception as e:
+                logging.warning(f"[错误] 获取 {link} 失败：{e}")
+                retries += 1
+                await asyncio.sleep(RETRY_DELAY)
+        return []
 
     try:
         # 启动客户端
         await client.start()
 
         now = datetime.now(timezone.utc)
-        since = now - max_age
+        since = now - MAX_AGE
         all_links = set()
 
-        # 并发抓取每个群组的消息
-        results = await fetch_all_messages_with_rate_limit(client, group_links)
-
-        for link, messages in results:
+        for link in group_links:
             group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
 
-            for message in messages:
-                if message.date < since:
-                    continue
-                found = url_pattern.findall(message.message or '')
-                all_links.update(found)
+            found = await fetch_group_data(link)
+            for idx, node in enumerate(found):
+                if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx):
+                    group_stats[link]["success"] += 1
+                else:
+                    group_stats[link]["failed"] += 1
 
-                # 统计成功的节点
-                for idx, node in enumerate(found):
-                    if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx):
-                        group_stats[link]["success"] += 1
-                    else:
-                        group_stats[link]["failed"] += 1
+            all_links.update(found)
 
-        logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
-        unique_nodes = list(set(all_links))
-
-        # 仅生成 sub 文件
-        await generate_subscribe_file(unique_nodes)
-
-        logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
-
-        # 输出群组统计信息
-        logging.info("📊 抓取统计:")
-        for group_link, stats in group_stats.items():
-            logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
-
+        logging.info(f"[完成] 抓取链接数: {len(all_links)}")
+        return list(all_links), group_stats
     except Exception as e:
-        logging.error(f"🛑 登录失败: {e}")
+        logging.error(f"登录失败: {e}")
+        return [], group_stats
+
+# ========== 主函数 ==========
+async def main():
+    logging.info("[启动] 开始抓取 Telegram 节点")
+    raw_nodes, group_stats = await fetch_messages()
+    unique_nodes = list(set(raw_nodes))
+
+    # 仅生成 sub 文件
+    await generate_subscribe_file(unique_nodes)
+
+    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+
+    # 输出群组统计信息
+    logging.info("\n[抓取统计信息]:")
+    for group_link, stats in group_stats.items():
+        logging.info(f"{group_link}: 成功节点数={stats['success']}, 失败节点数={stats['failed']}")
 
 if __name__ == "__main__":
     asyncio.run(main())
