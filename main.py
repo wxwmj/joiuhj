@@ -44,16 +44,6 @@ raw_group_links = [
     'https://t.me/free_outline_keys',
 ]
 
-# ========== 去重并注释重复项 ==========
-seen = set()
-group_links = []
-for link in raw_group_links:
-    if link in seen:
-        group_links.append(f"# '{link}',  # 🚫 重复")
-    else:
-        seen.add(link)
-        group_links.append(f"'{link}',")
-
 # ========== 匹配链接的正则 ==========
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
@@ -163,10 +153,10 @@ async def fetch_messages():
         since = now - max_age
         all_links = set()
 
-        for entry in group_links:
+        for entry in raw_group_links:
             if entry.startswith("#"):
                 continue  # 跳过注释项
-            link = entry.strip().strip("',")  # 清理字符串
+            link = entry.strip().strip("',")
             try:
                 entity = await client.get_entity(link)
                 history = await client(GetHistoryRequest(
@@ -193,6 +183,41 @@ async def fetch_messages():
         logging.error(f"登录失败: {e}")
         return []
 
+# ========== 自动注释重复群组链接 ==========
+def auto_comment_duplicates_in_raw_group_links(filename):
+    with open(filename, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    in_block = False
+    seen = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("raw_group_links") and stripped.endswith("["):
+            in_block = True
+            new_lines.append(line)
+            continue
+        if in_block:
+            if stripped.startswith("]"):
+                in_block = False
+                new_lines.append(line)
+                continue
+            match = re.search(r"'(https://t.me/[^']+)'", stripped)
+            if match:
+                link = match.group(1)
+                if link in seen:
+                    new_lines.append(f"    # '{link}',  # 🚫 重复\n")
+                else:
+                    seen.add(link)
+                    new_lines.append(f"    '{link}',\n")
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    with open(filename, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
 # ========== 主函数 ==========
 async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
@@ -200,6 +225,7 @@ async def main():
     unique_nodes = list(set(raw_nodes))
     await generate_subscribe_file(unique_nodes)
     logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+    auto_comment_duplicates_in_raw_group_links(__file__)
 
 if __name__ == "__main__":
     asyncio.run(main())
