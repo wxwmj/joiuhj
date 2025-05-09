@@ -8,12 +8,8 @@ import random
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-from tempfile import NamedTemporaryFile
-from dotenv import load_dotenv
 
 # ========== 配置 ==========
-load_dotenv()  # 加载 .env 配置文件
-
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
 session_b64 = os.getenv("SESSION_B64")
@@ -24,9 +20,9 @@ if not all([api_id_str, api_hash, session_b64]):
 api_id = int(api_id_str)
 
 # Decode SESSION_B64 to get the actual session binary data
-with NamedTemporaryFile(delete=False) as session_file:
+session_file_path = "session.session"
+with open(session_file_path, "wb") as session_file:
     session_file.write(base64.b64decode(session_b64))
-    session_file_path = session_file.name
 
 # ========== 日志配置 ==========
 logging.basicConfig(level=logging.INFO,
@@ -62,26 +58,10 @@ for link in raw_group_links:
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
 
-# ========== 统一节点解析函数 ==========
-NODE_PARSERS = {
-    "vmess://": lambda node, idx: parse_vmess_node(node, idx),
-    "ss://": lambda node, idx: parse_ss_node(node, idx),
-    "trojan://": lambda node, idx: parse_trojan_node(node, idx),
-    "vless://": lambda node, idx: parse_vless_node(node, idx),
-    "tuic://": lambda node, idx: parse_tuic_node(node, idx),
-    "hysteria://": lambda node, idx: parse_hysteria_node(node, idx),
-    "hysteria2://": lambda node, idx: parse_hysteria2_node(node, idx),
-}
-
-def parse_node(url, index):
-    for protocol, parser in NODE_PARSERS.items():
-        if url.startswith(protocol):
-            return parser(url, index)
-    return None
-
-def parse_vmess_node(url, index):
+# ========== 解析节点 ==========
+def parse_vmess_node(node, index):
     try:
-        raw = base64.b64decode(url[8:])
+        raw = base64.b64decode(node[8:])
         if not raw:
             return None
         conf = json.loads(raw)
@@ -319,7 +299,7 @@ async def main():
 
                     # 统计成功的节点
                     for idx, node in enumerate(found):
-                        if parse_node(node, idx):
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
                             group_stats[link]["success"] += 1
                         else:
                             group_stats[link]["failed"] += 1
