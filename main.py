@@ -1,4 +1,4 @@
-import os  # Ensure os module is imported
+import os
 import base64
 import logging
 import json
@@ -41,13 +41,8 @@ group_links = [
     'https://t.me/daily_configs', 
 ]
 
-# 去重：使用 set 保证链接唯一
+# 去重群组链接，使用 set 确保唯一性
 group_links = list(set(group_links))
-
-# 注释掉已去重的链接
-logging.info(f"[去重后] 需要抓取的群组链接：{group_links}")
-for i, link in enumerate(group_links):
-    group_links[i] = f"# {link}"
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
@@ -169,9 +164,6 @@ async def fetch_messages():
 
         for link in group_links:
             try:
-                # 注释掉的链接将不会被抓取
-                if link.startswith("#"):
-                    continue
                 entity = await client.get_entity(link)  # 使用群组链接获取实体
                 history = await client(GetHistoryRequest(
                     peer=entity,
