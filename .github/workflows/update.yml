@@ -27,7 +27,7 @@ jobs:
       env:
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
-        SESSION_B64: ${{ secrets.SESSION_B64 }}  # 使用 base64 编码的 session 进行登录
+        SESSION_B64: ${{ secrets.SESSION_B64 }}
       run: python main.py
 
     - name: Commit & Push updates
