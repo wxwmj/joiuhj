@@ -39,6 +39,9 @@ group_links = [
     'https://t.me/oneclickvpnkeys', 
     'https://t.me/entryNET', 
     'https://t.me/daily_configs', 
+    'https://t.me/VPN365R', 
+    'https://t.me/ConfigsHUB2', 
+    'https://t.me/free_outline_keys',
 ]
 
 # 去重群组链接，使用 set 确保唯一性
