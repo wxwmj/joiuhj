@@ -53,7 +53,9 @@ for link in raw_group_links:
         group_links.append(link)
         seen.add(link)
     else:
+        # 注释掉重复的群组链接
         logging.warning(f"重复群组链接已忽略：{link}")
+        raw_group_links[raw_group_links.index(link)] = f"# {link}"  # 将重复的链接注释掉
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
