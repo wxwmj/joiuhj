@@ -21,6 +21,11 @@ jobs:
     - name: Install dependencies
       run: pip install -r requirements.txt
 
+    - name: Decode SESSION_B64 and restore session
+      run: |
+        echo "${{ secrets.SESSION_B64 }}" | base64 --decode > session.session
+        echo "SESSION_B64 decoded and session.session restored."
+
     - name: Run script
       env:
         API_ID: ${{ secrets.API_ID }}
