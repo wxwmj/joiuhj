@@ -27,8 +27,7 @@ jobs:
       env:
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
-        PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
-        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}  # 使用 Bot Token 进行登录
+        SESSION_B64: ${{ secrets.SESSION_B64 }}  # 使用 base64 编码的 session 进行登录
       run: python main.py
 
     - name: Commit & Push updates
