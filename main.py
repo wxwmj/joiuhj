@@ -8,6 +8,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
+import requests
 
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
@@ -42,6 +43,16 @@ url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[
 # 最大抓取时间范围（修改为6小时）
 max_age = timedelta(hours=6)
 
+# ========== 判断是否为 CN 节点 ==========
+def is_cn_node(host):
+    try:
+        # 查询 IP 地址是否属于中国
+        response = requests.get(f"http://ip-api.com/json/{host}?fields=countryCode")
+        data = response.json()
+        return data.get("countryCode") == "CN"
+    except requests.RequestException:
+        return False
+
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
@@ -49,10 +60,14 @@ def parse_vmess_node(node, index):
         if not raw:
             return None
         conf = json.loads(raw)
+        host = conf["add"]
+        if is_cn_node(host):
+            logging.info(f"[过滤] CN 节点 vmess: {host}")
+            return None
         return {
             "name": f"vmess_{index}",
             "type": "vmess",
-            "server": conf["add"],
+            "server": host,
             "port": int(conf["port"]),
             "uuid": conf["id"],
             "alterId": int(conf.get("aid", 0)),
@@ -71,6 +86,9 @@ def parse_trojan_node(url, index):
         if len(host_port) < 2:
             return None
         host, port = host_port[0], int(host_port[1])
+        if is_cn_node(host):
+            logging.info(f"[过滤] CN 节点 trojan: {host}")
+            return None
         return {
             "name": f"trojan_{index}",
             "type": "trojan",
@@ -91,6 +109,9 @@ def parse_vless_node(url, index):
         if len(host_port) < 2:
             return None
         host, port = host_port[0], int(host_port[1])
+        if is_cn_node(host):
+            logging.info(f"[过滤] CN 节点 vless: {host}")
+            return None
         return {
             "name": f"vless_{index}",
             "type": "vless",
@@ -117,6 +138,9 @@ def parse_ss_node(url, index):
             method_password, server_part = decoded.split("@")
             method, password = method_password.split(":")
         server, port = server_part.split(":")
+        if is_cn_node(server):
+            logging.info(f"[过滤] CN 节点 ss: {server}")
+            return None
         return {
             "name": f"ss_{index}",
             "type": "ss",
