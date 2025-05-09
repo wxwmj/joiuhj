@@ -41,8 +41,11 @@ raw_group_links = [
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
-    'https://t.me/daily_configs',  # 重复的群组链接
-    'https://t.me/DailyV2RY',  # 重复的群组链接
+    'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
+    'https://t.me/free_outline_keys',
+    'https://t.me/config_proxy',
+    'https://t.me/freenettir',
 ]  # 注意这里已经关闭了括号
 
 # 去重处理，并将重复的链接用注释标记
