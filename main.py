@@ -1,13 +1,3 @@
-import os
-import base64
-import logging
-import json
-import re  # Ensure re module is imported for regular expressions
-import asyncio
-from datetime import datetime, timedelta, timezone
-from telethon import TelegramClient
-from telethon.tl.functions.messages import GetHistoryRequest
-
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
@@ -39,13 +29,18 @@ group_links = [
     'https://t.me/oneclickvpnkeys', 
     'https://t.me/entryNET', 
     'https://t.me/daily_configs', 
-    'https://t.me/VPN365R',  
+     'https://t.me/VPN365R', 
     'https://t.me/ConfigsHUB2', 
+    'https://t.me/free_outline_keys',
 ]
 
-# 在抓取之前对群组链接进行去重
+# 去重：使用 set 保证链接唯一
 group_links = list(set(group_links))
-logging.info(f"[去重完成] 群组链接数: {len(group_links)}")
+
+# 注释掉已去重的链接
+logging.info(f"[去重后] 需要抓取的群组链接：{group_links}")
+for i, link in enumerate(group_links):
+    group_links[i] = f"# {link}"
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
@@ -163,10 +158,13 @@ async def fetch_messages():
 
         now = datetime.now(timezone.utc)
         since = now - max_age
-        all_links = set()  # 用于存储所有抓取到的链接
+        all_links = set()
 
         for link in group_links:
             try:
+                # 注释掉的链接将不会被抓取
+                if link.startswith("#"):
+                    continue
                 entity = await client.get_entity(link)  # 使用群组链接获取实体
                 history = await client(GetHistoryRequest(
                     peer=entity,
@@ -182,12 +180,12 @@ async def fetch_messages():
                     if message.date < since:
                         continue
                     found = url_pattern.findall(message.message or '')
-                    all_links.update(found)  # 直接去重
+                    all_links.update(found)
             except Exception as e:
                 logging.warning(f"[错误] 获取 {link} 失败：{e}")
 
         logging.info(f"[完成] 抓取链接数: {len(all_links)}")
-        return list(all_links)  # 返回去重后的链接列表
+        return list(all_links)
     except Exception as e:
         logging.error(f"登录失败: {e}")
         return []
@@ -196,7 +194,7 @@ async def fetch_messages():
 async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
     raw_nodes = await fetch_messages()
-    unique_nodes = list(set(raw_nodes))  # 再次去重
+    unique_nodes = list(set(raw_nodes))
 
     # 仅生成 sub 文件
     await generate_subscribe_file(unique_nodes)
