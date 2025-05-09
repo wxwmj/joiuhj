@@ -41,6 +41,10 @@ group_links = [
     'https://t.me/daily_configs', 
 ]
 
+# 自动去重 Telegram 群组链接
+group_links = list(set(group_links))
+logging.info(f"[去重完成] 群组链接数: {len(group_links)}")
+
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
