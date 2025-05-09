@@ -134,7 +134,7 @@ def parse_ss_node(url, index):
 def filter_cn_nodes(nodes):
     filtered_nodes = []
     for node in nodes:
-        if "cn" not in node.get("server", "").lower():
+        if "cn" not in node["server"].lower():  # 确保检查server字段
             filtered_nodes.append(node)
     return filtered_nodes
 
