@@ -132,9 +132,12 @@ def parse_ss_node(url, index):
 
 # ========== 过滤 cn 节点 ==========
 def filter_cn_nodes(nodes):
+    cn_keywords = ["cn", "china", "中国", "🇨🇳"]
     filtered_nodes = []
     for node in nodes:
-        if "cn" not in node["server"].lower():  # 确保检查server字段
+        server = node.get("server", "").lower()
+        name = node.get("name", "").lower()
+        if not any(kw in server or kw in name for kw in cn_keywords):
             filtered_nodes.append(node)
     return filtered_nodes
 
@@ -175,6 +178,16 @@ def generate_clash_config(nodes):
     with open("clash_subscribe.yaml", "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
     logging.info(f"[写入完成] clash_subscribe.yaml，节点数：{len(proxies)}")
+
+# ========== 检查节点原始链接中是否含有 CN ==========
+def is_cn_node_raw(link):
+    try:
+        link_lower = link.lower()
+        if any(x in link_lower for x in ["cn", "china", "🇨🇳", "中国"]):
+            return True
+        return False
+    except:
+        return False
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
@@ -221,16 +234,19 @@ async def main():
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))  # 去重
 
+    # 过滤掉 cn 节点
+    filtered_nodes = [n for n in unique_nodes if not is_cn_node_raw(n)]
+
     with open("unique_nodes.txt", "w", encoding="utf-8") as f:
-        for node in unique_nodes:
+        for node in filtered_nodes:
             f.write(node + "\n")
 
     # 生成 Clash 配置
-    generate_clash_config(unique_nodes)
+    generate_clash_config(filtered_nodes)
 
     # 生成 base64 编码订阅
     try:
-        joined_nodes = "\n".join(unique_nodes)
+        joined_nodes = "\n".join(filtered_nodes)
         encoded = base64.b64encode(joined_nodes.encode()).decode()
         with open("subscribe_base64.txt", "w", encoding="utf-8") as f:
             f.write(encoded)
@@ -238,7 +254,7 @@ async def main():
     except Exception as e:
         logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
-    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
+    logging.info(f"[完成] 保存节点配置，节点数：{len(filtered_nodes)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
