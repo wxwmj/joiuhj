@@ -6,7 +6,6 @@ import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
-import io
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -21,12 +20,19 @@ if not all([api_id_str, api_hash, session_b64]):
 
 api_id = int(api_id_str)
 
+# Decode SESSION_B64 to get the actual session string
+session_file = base64.b64decode(session_b64).decode('utf-8')
+
+# 需要抓取的 Telegram 群组
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
     'config_proxy', 'freenettir', 'wxgmrjdcc', 'daily_configs'
 ]
 
+# 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
+
+# 最大抓取时间范围
 max_age = timedelta(hours=12)
 
 # ========== 日志配置 ==========
@@ -34,16 +40,6 @@ logging.basicConfig(level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
-
-# ========== 加载 SESSION_B64 ==========
-session_b64 = os.getenv("SESSION_B64")
-if session_b64:
-    # 解码 SESSION_B64 并加载到 Telethon 客户端
-    session_data = base64.b64decode(session_b64)
-    session_file = io.BytesIO(session_data)
-    client = TelegramClient(session_file, api_id, api_hash)
-else:
-    raise ValueError("❌ 环境变量 SESSION_B64 未设置！")
 
 # ========== 工具函数 ==========
 def safe_b64decode(data):
@@ -178,8 +174,12 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
+    client = TelegramClient(session_file, api_id, api_hash)
+
     try:
+        # 启动客户端
         await client.start()
+
         now = datetime.now(timezone.utc)
         since = now - max_age
         all_links = set()
