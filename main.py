@@ -41,6 +41,8 @@ raw_group_links = [
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
      'https://t.me/DailyV2RY',
+    'https://t.me/daily_configs',
+     'https://t.me/DailyV2RY',
 ]
 
 # 去重处理，并记录重复项
