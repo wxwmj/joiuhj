@@ -40,12 +40,12 @@ raw_group_links = [
     'https://t.me/oneclickvpnkeys',
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
+     'https://t.me/DailyV2RY',
     'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
+     'https://t.me/DailyV2RY',
+      'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
-
 ]
 
 # 去重处理，并记录重复项
@@ -59,7 +59,7 @@ for link in raw_group_links:
         logging.warning(f"重复群组链接已忽略：{link}")
 
 # 匹配链接的正则表达式
-url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
+url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
@@ -147,66 +147,6 @@ def parse_ss_node(url, index):
         }
     except Exception as e:
         logging.debug(f"解析 ss 失败: {e}")
-        return None
-
-def parse_tuic_node(url, index):
-    try:
-        raw = url[6:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"tuic_{index}",
-            "type": "tuic",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
-        return None
-
-def parse_hysteria_node(url, index):
-    try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria_{index}",
-            "type": "hysteria",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
-        return None
-
-def parse_hysteria2_node(url, index):
-    try:
-        raw = url[11:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria2_{index}",
-            "type": "hysteria2",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria2 失败: {e}")
         return None
 
 # ========== 生成订阅文件 ==========
@@ -302,7 +242,7 @@ async def main():
 
                     # 统计成功的节点
                     for idx, node in enumerate(found):
-                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx):
                             group_stats[link]["success"] += 1
                         else:
                             group_stats[link]["failed"] += 1
