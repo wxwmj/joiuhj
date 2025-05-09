@@ -2,7 +2,7 @@ import os
 import base64
 import logging
 import json
-import re
+import re  # Ensure re module is imported for regular expressions
 import asyncio
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
@@ -29,7 +29,7 @@ logging.basicConfig(level=logging.INFO,
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
-# ========== 原始群组链接 ==========
+# 原始群组链接（可含重复）
 raw_group_links = [
     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
@@ -39,21 +39,32 @@ raw_group_links = [
     'https://t.me/oneclickvpnkeys',
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
-    'https://t.me/VPN365R',
-    'https://t.me/ConfigsHUB2',
-    'https://t.me/free_outline_keys',
+    'https://t.me/VPN365R',  # 重复示例
+    'https://t.me/entryNET',  # 重复示例
 ]
 
-# ========== 匹配链接的正则 ==========
+# 去重处理，并记录重复项
+group_links = []
+seen = set()
+for link in raw_group_links:
+    if link not in seen:
+        group_links.append(link)
+        seen.add(link)
+    else:
+        logging.warning(f"[去重] 重复电报群链接已忽略：{link}")
+
+# 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
-# 最大抓取时间范围
+# 最大抓取时间范围（修改为6小时）
 max_age = timedelta(hours=6)
 
-# ========== 节点解析 ==========
+# ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
         raw = base64.b64decode(node[8:])
+        if not raw:
+            return None
         conf = json.loads(raw)
         return {
             "name": f"vmess_{index}",
@@ -74,6 +85,8 @@ def parse_trojan_node(url, index):
         raw = url[9:].split("@")
         password = raw[0]
         host_port = raw[1].split("?")[0].split(":")
+        if len(host_port) < 2:
+            return None
         host, port = host_port[0], int(host_port[1])
         return {
             "name": f"trojan_{index}",
@@ -92,6 +105,8 @@ def parse_vless_node(url, index):
         raw = url[8:].split("@")
         uuid = raw[0]
         host_port = raw[1].split("?")[0].split(":")
+        if len(host_port) < 2:
+            return None
         host, port = host_port[0], int(host_port[1])
         return {
             "name": f"vless_{index}",
@@ -132,9 +147,10 @@ def parse_ss_node(url, index):
         logging.warning(f"[解析失败] ss：{e}")
         return None
 
-# ========== 生成订阅 ==========
+# ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
     try:
+        # 生成 base64 编码订阅
         joined_nodes = "\n".join(nodes)
         encoded = base64.b64encode(joined_nodes.encode()).decode()
         with open("sub", "w", encoding="utf-8") as f:
@@ -143,22 +159,21 @@ async def generate_subscribe_file(nodes):
     except Exception as e:
         logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
 
-# ========== 抓取消息 ==========
+# ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
     client = TelegramClient(session_file_path, api_id, api_hash)
 
     try:
+        # 启动客户端
         await client.start()
+
         now = datetime.now(timezone.utc)
         since = now - max_age
         all_links = set()
 
-        for entry in raw_group_links:
-            if entry.startswith("#"):
-                continue  # 跳过注释项
-            link = entry.strip().strip("',")
+        for link in group_links:
             try:
-                entity = await client.get_entity(link)
+                entity = await client.get_entity(link)  # 使用群组链接获取实体
                 history = await client(GetHistoryRequest(
                     peer=entity,
                     limit=100,
@@ -183,49 +198,16 @@ async def fetch_messages():
         logging.error(f"登录失败: {e}")
         return []
 
-# ========== 自动注释重复群组链接 ==========
-def auto_comment_duplicates_in_raw_group_links(filename):
-    with open(filename, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    in_block = False
-    seen = set()
-    new_lines = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("raw_group_links") and stripped.endswith("["):
-            in_block = True
-            new_lines.append(line)
-            continue
-        if in_block:
-            if stripped.startswith("]"):
-                in_block = False
-                new_lines.append(line)
-                continue
-            match = re.search(r"'(https://t.me/[^']+)'", stripped)
-            if match:
-                link = match.group(1)
-                if link in seen:
-                    new_lines.append(f"    # '{link}',  # 🚫 重复\n")
-                else:
-                    seen.add(link)
-                    new_lines.append(f"    '{link}',\n")
-            else:
-                new_lines.append(line)
-        else:
-            new_lines.append(line)
-
-    with open(filename, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-
 # ========== 主函数 ==========
 async def main():
     logging.info("[启动] 开始抓取 Telegram 节点")
     raw_nodes = await fetch_messages()
     unique_nodes = list(set(raw_nodes))
+
+    # 仅生成 sub 文件
     await generate_subscribe_file(unique_nodes)
+
     logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
-    auto_comment_duplicates_in_raw_group_links(__file__)
 
 if __name__ == "__main__":
     asyncio.run(main())
