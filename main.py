@@ -39,6 +39,9 @@ group_links = [
     'https://t.me/oneclickvpnkeys', 
     'https://t.me/entryNET', 
     'https://t.me/daily_configs', 
+     'https://t.me/VPN365R', 
+    'https://t.me/ConfigsHUB2', 
+    'https://t.me/free_outline_keys',
 ]
 
 # 自动去重 Telegram 群组链接
