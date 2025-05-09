@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO,
 # 需要抓取的 Telegram 群组
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
-    'config_proxy', 'freenettir', 'wxgmrjdcc', 'daily_configs'
+    'config_proxy', 'freenettir', 'VPN365R',  'oneclickvpnkeys',  'entryNET', 'daily_configs'
 ]
 
 # 匹配链接的正则表达式
