@@ -6,16 +6,18 @@ import logging
 import json
 import yaml
 from datetime import datetime, timedelta, timezone
+import io
+
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.sessions import StringSession
 
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
 api_hash = os.getenv("API_HASH")
+bot_token = os.getenv("BOT_TOKEN")
 
-if not all([api_id_str, api_hash]):
-    raise ValueError("❌ 缺少环境变量：API_ID 或 API_HASH")
+if not all([api_id_str, api_hash, bot_token]):
+    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 BOT_TOKEN")
 
 api_id = int(api_id_str)
 
@@ -32,6 +34,16 @@ logging.basicConfig(level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
+
+# ========== 加载 SESSION_B64 ==========
+session_b64 = os.getenv("SESSION_B64")
+if session_b64:
+    # 解码 SESSION_B64 并加载到 Telethon 客户端
+    session_data = base64.b64decode(session_b64)
+    session_file = io.BytesIO(session_data)
+    client = TelegramClient(session_file, api_id, api_hash)
+else:
+    raise ValueError("❌ 环境变量 SESSION_B64 未设置！")
 
 # ========== 工具函数 ==========
 def safe_b64decode(data):
@@ -166,12 +178,8 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    # 使用用户凭证（登录会话）
-    client = TelegramClient(StringSession(), api_id, api_hash)
-    
     try:
         await client.start()
-        
         now = datetime.now(timezone.utc)
         since = now - max_age
         all_links = set()
