@@ -41,15 +41,14 @@ raw_group_links = [
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
- 'https://t.me/VPN365R',
+     'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
     'https://t.me/free_outline_keys',
-]
 
 # 去重处理，并将重复的链接用注释标记
 group_links = []
 seen = set()
-for link in raw_group_links:
+for link in raw_group_links[:]:  # 使用切片来避免修改原列表
     if link not in seen:
         group_links.append(link)
         seen.add(link)
