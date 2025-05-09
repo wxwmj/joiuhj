@@ -18,32 +18,36 @@ if not all([api_id_str, api_hash, session_b64]):
     raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 SESSION_B64")
 
 api_id = int(api_id_str)
-session_file_path = "session.session"
-with open(session_file_path, "wb") as f:
-    f.write(base64.b64decode(session_b64))
 
+# Decode SESSION_B64 to get the actual session binary data
+session_file_path = "session.session"
+with open(session_file_path, "wb") as session_file:
+    session_file.write(base64.b64decode(session_b64))
+
+# ========== 日志配置 ==========
 logging.basicConfig(level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
+# 需要抓取的 Telegram 群组
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
     'config_proxy', 'freenettir', 'wxgmrjdcc', 'daily_configs'
 ]
+
+# 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
+
+# 最大抓取时间范围（修改为6小时）
 max_age = timedelta(hours=6)
 
-cn_keywords = ["cn", "china", "中国", "🇨🇳", "阿里云", "腾讯", "移动", "电信", "联通", "cmcc", "unicom"]
-
-# ========== 判断原始链接是否含 CN ==========
-def is_cn_node_raw(link):
-    return any(k in link.lower() for k in cn_keywords)
-
-# ========== 节点解析 ==========
+# ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
-        raw = base64.b64decode(node[8:] + '==')
+        raw = base64.b64decode(node[8:])
+        if not raw:
+            return None
         conf = json.loads(raw)
         return {
             "name": f"vmess_{index}",
@@ -53,42 +57,51 @@ def parse_vmess_node(node, index):
             "uuid": conf["id"],
             "alterId": int(conf.get("aid", 0)),
             "cipher": "auto",
-            "tls": conf.get("tls", "none") == "tls"
+            "tls": conf.get("tls", "none") == "tls",
         }
-    except:
+    except Exception as e:
+        logging.warning(f"[解析失败] vmess：{e}")
         return None
 
 def parse_trojan_node(url, index):
     try:
         raw = url[9:].split("@")
         password = raw[0]
-        host, port = raw[1].split("?")[0].split(":")
+        host_port = raw[1].split("?")[0].split(":")
+        if len(host_port) < 2:
+            return None
+        host, port = host_port[0], int(host_port[1])
         return {
             "name": f"trojan_{index}",
             "type": "trojan",
             "server": host,
-            "port": int(port),
+            "port": port,
             "password": password,
             "udp": True
         }
-    except:
+    except Exception as e:
+        logging.warning(f"[解析失败] trojan：{e}")
         return None
 
 def parse_vless_node(url, index):
     try:
         raw = url[8:].split("@")
         uuid = raw[0]
-        host, port = raw[1].split("?")[0].split(":")
+        host_port = raw[1].split("?")[0].split(":")
+        if len(host_port) < 2:
+            return None
+        host, port = host_port[0], int(host_port[1])
         return {
             "name": f"vless_{index}",
             "type": "vless",
             "server": host,
-            "port": int(port),
+            "port": port,
             "uuid": uuid,
             "encryption": "none",
             "udp": True
         }
-    except:
+    except Exception as e:
+        logging.warning(f"[解析失败] vless：{e}")
         return None
 
 def parse_ss_node(url, index):
@@ -113,91 +126,116 @@ def parse_ss_node(url, index):
             "password": password,
             "udp": True
         }
-    except:
+    except Exception as e:
+        logging.warning(f"[解析失败] ss：{e}")
         return None
 
-# ========== Telegram 抓取 ==========
-async def fetch_messages():
-    client = TelegramClient(session_file_path, api_id, api_hash)
-    await client.start()
+# ========== 生成 Clash 配置 ==========
+def generate_clash_config(nodes):
+    proxies = []
 
-    now = datetime.now(timezone.utc)
-    since = now - max_age
-    all_links = set()
-
-    for username in group_usernames:
-        try:
-            entity = await client.get_entity(username)
-            history = await client(GetHistoryRequest(
-                peer=entity, limit=100, offset_date=None,
-                offset_id=0, max_id=0, min_id=0, add_offset=0, hash=0
-            ))
-            for message in history.messages:
-                if message.date < since:
-                    continue
-                found = url_pattern.findall(message.message or '')
-                all_links.update(found)
-        except Exception as e:
-            logging.warning(f"[跳过] {username}：{e}")
-
-    await client.disconnect()
-    return list(all_links)
-
-# ========== 主函数 ==========
-async def main():
-    logging.info("[开始] 抓取 Telegram 节点")
-    raw_nodes = await fetch_messages()
-
-    # 原始过滤 + 去重
-    filtered_nodes = [n for n in raw_nodes if not is_cn_node_raw(n)]
-    unique_nodes = list(set(filtered_nodes))
-
-    # 再解析并检查 server/name 中的 CN
-    clash_nodes = []
-    raw_result = []
-
-    for i, node in enumerate(unique_nodes):
+    for i, node in enumerate(nodes):
         if node.startswith("vmess://"):
-            parsed = parse_vmess_node(node, i+1)
+            proxy = parse_vmess_node(node, i + 1)
         elif node.startswith("trojan://"):
-            parsed = parse_trojan_node(node, i+1)
+            proxy = parse_trojan_node(node, i + 1)
         elif node.startswith("vless://"):
-            parsed = parse_vless_node(node, i+1)
+            proxy = parse_vless_node(node, i + 1)
         elif node.startswith("ss://"):
-            parsed = parse_ss_node(node, i+1)
+            proxy = parse_ss_node(node, i + 1)
         else:
-            continue
+            proxy = None
 
-        if parsed:
-            content = f"{parsed.get('name','')} {parsed.get('server','')}".lower()
-            if not any(k in content for k in cn_keywords):
-                clash_nodes.append(parsed)
-                raw_result.append(node)
+        if proxy:
+            proxies.append(proxy)
 
-    # 生成 Clash 文件
     config = {
-        "proxies": clash_nodes,
+        "proxies": proxies,
         "proxy-groups": [{
             "name": "auto",
             "type": "url-test",
-            "proxies": [p["name"] for p in clash_nodes],
+            "proxies": [p["name"] for p in proxies],
             "url": "http://www.gstatic.com/generate_204",
             "interval": 300
         }],
         "rules": ["MATCH,auto"]
     }
 
+    # 写入 wxx.yaml
     with open("wxx.yaml", "w", encoding="utf-8") as f:
         yaml.dump(config, f, allow_unicode=True)
+    logging.info(f"[写入完成] wxx.yaml，节点数：{len(proxies)}")
 
-    with open("wxx.json", "w", encoding="utf-8") as f:
-        json.dump(raw_result, f, indent=2, ensure_ascii=False)
+# ========== 抓取 Telegram 消息 ==========
+async def fetch_messages():
+    client = TelegramClient(session_file_path, api_id, api_hash)
 
-    encoded = base64.b64encode("\n".join(raw_result).encode()).decode()
-    with open("sub", "w", encoding="utf-8") as f:
-        f.write(encoded)
+    try:
+        # 启动客户端
+        await client.start()
 
-    logging.info(f"[完成] 节点总数：{len(raw_result)}，已写入 wxx.yaml / wxx.json / sub")
+        now = datetime.now(timezone.utc)
+        since = now - max_age
+        all_links = set()
+
+        for username in group_usernames:
+            try:
+                entity = await client.get_entity(username)
+                history = await client(GetHistoryRequest(
+                    peer=entity,
+                    limit=100,
+                    offset_date=None,
+                    offset_id=0,
+                    max_id=0,
+                    min_id=0,
+                    add_offset=0,
+                    hash=0
+                ))
+                for message in history.messages:
+                    if message.date < since:
+                        continue
+                    found = url_pattern.findall(message.message or '')
+                    all_links.update(found)
+            except Exception as e:
+                logging.warning(f"[错误] 获取 {username} 失败：{e}")
+
+        logging.info(f"[完成] 抓取链接数: {len(all_links)}")
+        return list(all_links)
+    except Exception as e:
+        logging.error(f"登录失败: {e}")
+        return []
+
+# ========== 主函数 ==========
+async def main():
+    logging.info("[启动] 开始抓取 Telegram 节点")
+    raw_nodes = await fetch_messages()
+    unique_nodes = list(set(raw_nodes))
+
+    with open("sub", "w", encoding="utf-8") as f:  # 写入 sub
+        for node in unique_nodes:
+            f.write(node + "\n")
+
+    generate_clash_config(unique_nodes)
+
+    # 生成 wxx.json
+    try:
+        with open("wxx.json", "w", encoding="utf-8") as f:
+            json.dump(unique_nodes, f, ensure_ascii=False, indent=4)
+        logging.info("[写入完成] wxx.json")
+    except Exception as e:
+        logging.warning(f"[错误] 生成 wxx.json 失败：{e}")
+
+    # 生成 base64 编码订阅
+    try:
+        joined_nodes = "\n".join(unique_nodes)
+        encoded = base64.b64encode(joined_nodes.encode()).decode()
+        with open("subscribe_base64.txt", "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logging.info("[写入完成] subscribe_base64.txt")
+    except Exception as e:
+        logging.warning(f"[错误] 生成 base64 订阅失败：{e}")
+
+    logging.info(f"[完成] 保存节点配置，节点数：{len(unique_nodes)}")
 
 if __name__ == "__main__":
     asyncio.run(main())
