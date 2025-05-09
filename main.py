@@ -52,6 +52,11 @@ group_links = [
     'https://t.me/oneclickvpnkeys',
     'https://t.me/entryNET',
     'https://t.me/daily_configs',
+    'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
+    'https://t.me/free_outline_keys',
+    'https://t.me/config_proxy',
+    'https://t.me/freenettir',
 ]
 
 # 匹配链接的正则表达式
