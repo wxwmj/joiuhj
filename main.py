@@ -43,6 +43,10 @@ raw_group_links = [
     'https://t.me/DailyV2RY',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
+     'https://t.me/VPN365R',
+    'https://t.me/ConfigsHUB2',
+    'https://t.me/free_outline_keys',
+    'https://t.me/config_proxy',
 ]
 
 # 去重处理，并记录重复项
