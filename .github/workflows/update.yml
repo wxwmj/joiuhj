@@ -34,6 +34,7 @@ jobs:
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
-        git add clash_subscribe.yaml subscribe_base64.txt unique_nodes.txt
-        git commit -m "Auto update subscription files" || echo "No changes"
+        git add wxx.yaml wxx.json sub  # 使用新的文件名
+        # 检查是否有变更，再提交
+        git diff --cached --quiet || git commit -m "Auto update subscription files"
         git push
