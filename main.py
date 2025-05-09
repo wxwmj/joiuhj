@@ -10,6 +10,8 @@ from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 
 # ========== 配置 ==========
+api_id_str = os.getenv("API_ID")
+api_hash = os.getenv("API_HASH")
 session_b64 = os.getenv("SESSION_B64")
 
 if not all([api_id_str, api_hash, session_b64]):
