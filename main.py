@@ -18,7 +18,15 @@ phone_number = os.getenv("PHONE_NUMBER")
 if not all([api_id_str, api_hash, phone_number]):
     raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 PHONE_NUMBER")
 
-api_id = int(api_id_str) 
+api_id = int(api_id_str)
+
+# 解码并恢复 session 文件
+session_b64 = os.getenv("SESSION_B64")
+if not session_b64:
+    raise ValueError("❌ 缺少环境变量：SESSION_B64")
+
+with open("session.session", "wb") as f:
+    f.write(base64.b64decode(session_b64))
 
 group_usernames = [
     'VPN365R', 'ConfigsHUB2', 'free_outline_keys',
@@ -167,7 +175,7 @@ def generate_clash_config(nodes):
 
 # ========== 抓取 Telegram 消息 ==========
 async def fetch_messages():
-    client = TelegramClient('session', api_id, api_hash)
+    client = TelegramClient('session.session', api_id, api_hash)
     await client.start(phone_number)
 
     now = datetime.now(timezone.utc)
