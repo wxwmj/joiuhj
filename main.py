@@ -3,6 +3,8 @@ import base64
 import logging
 import json
 import yaml
+import re  # Ensure re module is imported for regular expressions
+import asyncio
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -43,7 +45,7 @@ max_age = timedelta(hours=12)
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
-        raw = safe_b64decode(node[8:])
+        raw = base64.b64decode(node[8:])
         if not raw:
             return None
         conf = json.loads(raw)
