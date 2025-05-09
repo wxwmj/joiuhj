@@ -39,8 +39,8 @@ group_usernames = [
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+)', re.IGNORECASE)
 
-# 最大抓取时间范围
-max_age = timedelta(hours=12)
+# 最大抓取时间范围（修改为6小时）
+max_age = timedelta(hours=6)
 
 # ========== 解析节点 ==========
 def parse_vmess_node(node, index):
