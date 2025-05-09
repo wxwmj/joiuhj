@@ -1,152 +1,180 @@
+import base64
+import json
 import os
 import re
-import base64
+import time
 import logging
-from datetime import datetime, timedelta, timezone
 from telethon.sync import TelegramClient
-from telethon.sessions import StringSession
-from telethon.errors import SessionPasswordNeededError
-import asyncio
+from telethon.tl.types import Message
+from dotenv import load_dotenv
 
-# 加载环境变量
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-session_b64 = os.getenv("SESSION_B64")
-group_links = os.getenv("GROUP_LINKS", "").split(",")
+load_dotenv()
 
-session_file_path = "anon.session"
+# 读取环境变量（已混淆命名）
+API_ID = int(os.getenv("S_ID"))
+API_HASH = os.getenv("S_HASH")
+SESSION_B64 = os.getenv("S_SSN")
+GROUPS = os.getenv("S_GPS").split(',')
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# 解码 session
+SESSION = base64.b64decode(SESSION_B64)
 
-# 节点正则表达式
-url_pattern = re.compile(r"(vmess|ss|trojan|vless|tuic|hysteria|hysteria2)://[\S]+")
+# 日志配置
+logging.basicConfig(level=logging.INFO)
 
-# 节点解析函数们（此处略，保留原始的 parse_vmess_node 等）
-def parse_vmess_node(url, index):
-    try:
-        data = base64.b64decode(url.split("//", 1)[1] + '==').decode('utf-8')
-        return {"type": "vmess", "data": data}
-    except:
-        return None
+# 支持协议
+SUPPORTED_PROTOCOLS = ["vmess", "ss", "trojan", "vless", "tuic", "hysteria", "hysteria2"]
 
-# 其他 parse_xxx_node 略，保持你的原样
-# ...
+
+def is_valid_node(text):
+    return any(text.strip().startswith(proto + "://") for proto in SUPPORTED_PROTOCOLS)
+
+
+def extract_nodes_from_text(text):
+    urls = re.findall(r'(?:' + '|'.join(SUPPORTED_PROTOCOLS) + r')://[^\s]+', text)
+    return [url.strip() for url in urls if is_valid_node(url)]
+
 
 def parse_node(url, index):
-    scheme = url.split("://")[0].lower()
-    parsers = {
-        "vmess": parse_vmess_node,
-        "ss": parse_ss_node,
-        "trojan": parse_trojan_node,
-        "vless": parse_vless_node,
-        "tuic": parse_tuic_node,
-        "hysteria": parse_hysteria_node,
-        "hysteria2": parse_hysteria2_node
-    }
-    parser = parsers.get(scheme)
-    if parser:
-        return parser(url, index)
-    return None
-
-async def fetch_all_messages_with_rate_limit(client, group_links):
-    results = []
-    for link in group_links:
-        try:
-            entity = await client.get_entity(link)
-            messages = await client.get_messages(entity, limit=300)
-            results.append((link, messages))
-            await asyncio.sleep(1.5)
-        except Exception as e:
-            logging.warning(f"抓取 {link} 失败: {e}")
-            results.append((link, []))
-    return results
-
-def decode_session(session_b64):
     try:
-        raw_data = base64.b64decode(session_b64)
-        with open(session_file_path, "wb") as f:
-            f.write(raw_data)
-        return True
-    except Exception as e:
-        logging.error(f"解码 session 失败: {e}")
-        return False
+        protocol = url.split("://")[0].lower()
+        content = url[len(protocol) + 3:]
 
-async def generate_subscribe_file(nodes):
-    content = "\n".join(nodes)
-    encoded = base64.b64encode(content.encode()).decode()
-    with open("sub", "w") as f:
-        f.write(encoded)
-    logging.info("写入 base64 订阅文件 sub")
+        if protocol == "vmess":
+            try:
+                raw_json = base64.b64decode(content).decode()
+                conf = json.loads(raw_json)
+                return {
+                    "name": f"vmess_{index}",
+                    "type": "vmess",
+                    "server": conf["add"],
+                    "port": int(conf["port"]),
+                    "uuid": conf["id"],
+                    "alterId": int(conf.get("aid", 0)),
+                    "cipher": "auto",
+                    "tls": conf.get("tls", "none") == "tls",
+                }
+            except Exception as e:
+                logging.debug(f"[vmess] 解析失败: {e}")
+                return None
 
-async def main():
-    logging.info("🚀 开始抓取 Telegram 节点")
-    group_stats = {}
-    protocol_stats = {}
+        elif protocol in ["trojan", "vless", "tuic", "hysteria", "hysteria2"]:
+            try:
+                userinfo, hostport = content.split("@")
+                if ":" not in hostport:
+                    logging.debug(f"[{protocol}] 地址格式错误: {hostport}")
+                    return None
+                host, port = hostport.split(":")
+                node = {
+                    "name": f"{protocol}_{index}",
+                    "type": protocol,
+                    "server": host,
+                    "port": int(port),
+                    "udp": True
+                }
+                if protocol == "trojan":
+                    node["password"] = userinfo
+                elif protocol == "vless":
+                    node["uuid"] = userinfo
+                    node["encryption"] = "none"
+                else:
+                    node["password"] = userinfo
+                return node
+            except Exception as e:
+                logging.debug(f"[{protocol}] 解析失败: {e}")
+                return None
 
-    try:
-        if not decode_session(session_b64):
-            return
+        elif protocol == "ss":
+            try:
+                if "#" in content:
+                    content = content.split("#")[0]
+                if "@" in content:
+                    method_pwd_b64, server_part = content.split("@")
+                    method, password = base64.b64decode(method_pwd_b64 + "===").decode().split(":")
+                else:
+                    decoded = base64.b64decode(content + "===").decode()
+                    method_pwd, server_part = decoded.split("@")
+                    method, password = method_pwd.split(":")
+                server, port = server_part.split(":")
+                return {
+                    "name": f"ss_{index}",
+                    "type": "ss",
+                    "server": server,
+                    "port": int(port),
+                    "cipher": method,
+                    "password": password,
+                    "udp": True
+                }
+            except Exception as e:
+                logging.debug(f"[ss] 解析失败: {e}")
+                return None
 
-        async with TelegramClient(session_file_path, api_id, api_hash) as client:
-            now = datetime.now(timezone.utc)
-            all_links = set()
-            time_ranges = [1, 3, 6, 12, 24]
-
-            for hours in time_ranges:
-                logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
-                since = now - timedelta(hours=hours)
-                group_stats.clear()
-                protocol_stats.clear()
-
-                results = await fetch_all_messages_with_rate_limit(client, group_links)
-                any_valid_node = False
-
-                for link, messages in results:
-                    group_stats[link] = {"success": 0, "failed": 0}
-
-                    for message in messages:
-                        if message.date < since:
-                            continue
-                        found = url_pattern.findall(message.message or '')
-                        all_links.update(found)
-
-                        for idx, node in enumerate(found):
-                            parsed = parse_node(node, idx)
-                            if parsed:
-                                group_stats[link]["success"] += 1
-                                proto = parsed["type"]
-                                protocol_stats[proto] = protocol_stats.get(proto, 0) + 1
-                            else:
-                                group_stats[link]["failed"] += 1
-
-                if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
-                    any_valid_node = True
-                    break
-
-            if not any_valid_node:
-                logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
-                return
-
-            unique_nodes = list(set(all_links))
-            await generate_subscribe_file(unique_nodes)
-            logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
-
-            logging.info("📊 群组抓取统计:")
-            for group_link, stats in group_stats.items():
-                logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
-
-            logging.info("📦 协议统计:")
-            for proto, count in protocol_stats.items():
-                logging.info(f"{proto}: {count}")
+        else:
+            logging.debug(f"未知协议类型: {protocol}")
+            return None
 
     except Exception as e:
-        logging.error(f"🛑 执行失败: {e}")
+        logging.debug(f"通用节点解析失败: {e}")
+        return None
 
+
+def generate_subscribe_file(nodes, filename="sub"):
+    try:
+        raw = "\n".join(nodes).encode()
+        encoded = base64.b64encode(raw).decode()
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(encoded)
+        logging.info(f"订阅文件生成成功，共 {len(nodes)} 条节点")
+    except Exception as e:
+        logging.error(f"生成订阅文件失败: {e}")
+
+
+def main():
+    messages = []
+    try:
+        with open("session.session", "wb") as f:
+            f.write(SESSION)
+        with TelegramClient("session", API_ID, API_HASH) as client:
+            for group in GROUPS:
+                try:
+                    entity = client.get_entity(group)
+                    for msg in client.iter_messages(entity, limit=1000):
+                        if isinstance(msg, Message) and hasattr(msg, 'text') and msg.text:
+                            if msg.date.timestamp() > time.time() - 86400:
+                                messages.append((group, msg.text))
+                except Exception as e:
+                    logging.warning(f"获取 {group} 消息失败: {e}")
     finally:
-        if os.path.exists(session_file_path):
-            os.remove(session_file_path)
-            logging.info("🧹 已清理 session 文件")
+        if os.path.exists("session.session"):
+            os.remove("session.session")
+
+    nodes = []
+    dedup_set = set()
+    group_stats = {}
+
+    for link, text in messages:
+        found_nodes = extract_nodes_from_text(text)
+        if not found_nodes:
+            continue
+        if link not in group_stats:
+            group_stats[link] = {"total": 0, "success": 0, "failed": 0}
+        for idx, node in enumerate(found_nodes):
+            group_stats[link]["total"] += 1
+            parsed = parse_node(node, idx)
+            if parsed:
+                if node not in dedup_set:
+                    dedup_set.add(node)
+                    nodes.append(node)
+                group_stats[link]["success"] += 1
+            else:
+                group_stats[link]["failed"] += 1
+
+    generate_subscribe_file(nodes)
+
+    logging.info("抓取统计：")
+    for group, stats in group_stats.items():
+        logging.info(f"{group} - 总数: {stats['total']} 成功: {stats['success']} 失败: {stats['failed']}")
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
