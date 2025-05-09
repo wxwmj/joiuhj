@@ -43,9 +43,6 @@ raw_group_links = [
     'https://t.me/DailyV2RY',
     'https://t.me/daily_configs',
     'https://t.me/DailyV2RY',
-    'https://t.me/VPN365R',
-    'https://t.me/ConfigsHUB2',
-    'https://t.me/free_outline_keys',
 ]
 
 # 去重处理，并记录重复项
@@ -56,9 +53,13 @@ for link in raw_group_links:
         group_links.append(link)
         seen.add(link)
     else:
-        # 注释掉重复的群组链接
-        logging.warning(f"重复群组链接已忽略：{link}")
+        # 将重复的链接注释掉
         raw_group_links[raw_group_links.index(link)] = f"# {link}"  # 将重复的链接注释掉
+
+# 现在可以查看注释掉的群组链接
+logging.info("处理后的群组链接: ")
+for link in raw_group_links:
+    logging.info(link)
 
 # 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
