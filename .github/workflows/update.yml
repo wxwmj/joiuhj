@@ -25,15 +25,15 @@ jobs:
 
     - name: Run script
       env:
-        API_ID: ${{ secrets.API_ID }}
-        API_HASH: ${{ secrets.API_HASH }}
-        SESSION_B64: ${{ secrets.SESSION_B64 }}
+        _k1: ${{ secrets._k1 }}
+        _k2: ${{ secrets._k2 }}
+        _k3: ${{ secrets._k3 }}
       run: python main.py
 
     - name: Commit & Push updates
       run: |
         git config user.name "github-actions"
         git config user.email "github-actions@github.com"
-        git add clash_subscribe.yaml subscribe_base64.txt unique_nodes.txt
+        git add wxx.yaml sub wxx.json  # 修改为你的文件名
         git commit -m "Auto update subscription files" || echo "No changes"
         git push
