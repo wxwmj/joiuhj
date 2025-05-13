@@ -63,152 +63,23 @@ for link in raw_group_links:
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
 
 # ========== 解析节点 ==========
-def parse_vmess_node(node, index):
-    try:
-        raw = base64.b64decode(node[8:])
-        if not raw:
-            return None
-        conf = json.loads(raw)
-        return {
-            "name": f"vmess_{index}",
-            "type": "vmess",
-            "server": conf["add"],
-            "port": int(conf["port"]),
-            "uuid": conf["id"],
-            "alterId": int(conf.get("aid", 0)),
-            "cipher": "auto",
-            "tls": conf.get("tls", "none") == "tls",
-        }
-    except Exception as e:
-        logging.debug(f"解析 vmess 失败: {e}")
-        return None
-
-def parse_trojan_node(url, index):
-    try:
-        raw = url[9:].split("@")
-        password = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"trojan_{index}",
-            "type": "trojan",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 trojan 失败: {e}")
-        return None
-
-def parse_vless_node(url, index):
-    try:
-        raw = url[8:].split("@")
-        uuid = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"vless_{index}",
-            "type": "vless",
-            "server": host,
-            "port": port,
-            "uuid": uuid,
-            "encryption": "none",
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 vless 失败: {e}")
-        return None
-
-def parse_ss_node(url, index):
-    try:
-        raw = url[5:]
-        if "#" in raw:
-            raw = raw.split("#")[0]
-        if "@" in raw:
-            method_password, server_part = raw.split("@")
-            method, password = base64.b64decode(method_password + '===').decode().split(":")
-        else:
-            decoded = base64.b64decode(raw + '===').decode()
-            method_password, server_part = decoded.split("@")
-            method, password = method_password.split(":")
-        server, port = server_part.split(":")
-        return {
-            "name": f"ss_{index}",
-            "type": "ss",
-            "server": server,
-            "port": int(port),
-            "cipher": method,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 ss 失败: {e}")
-        return None
-
-def parse_tuic_node(url, index):
-    try:
-        raw = url[6:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"tuic_{index}",
-            "type": "tuic",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
-        return None
-
-def parse_hysteria_node(url, index):
-    try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria_{index}",
-            "type": "hysteria",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
-        return None
-
-def parse_hysteria2_node(url, index):
-    try:
-        raw = url[11:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria2_{index}",
-            "type": "hysteria2",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria2 失败: {e}")
-        return None
+def parse_node(node, index):
+    """综合所有节点解析函数，验证并返回有效节点"""
+    if node.startswith("vmess://"):
+        return parse_vmess_node(node, index)
+    elif node.startswith("trojan://"):
+        return parse_trojan_node(node, index)
+    elif node.startswith("vless://"):
+        return parse_vless_node(node, index)
+    elif node.startswith("ss://"):
+        return parse_ss_node(node, index)
+    elif node.startswith("tuic://"):
+        return parse_tuic_node(node, index)
+    elif node.startswith("hysteria://"):
+        return parse_hysteria_node(node, index)
+    elif node.startswith("hysteria2://"):
+        return parse_hysteria2_node(node, index)
+    return None  # 返回无效节点
 
 # ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
@@ -271,47 +142,66 @@ async def main():
     client = TelegramClient(session_file_path, api_id, api_hash)
     
     group_stats = {}  # 用于统计每个群组的结果
+    valid_nodes = set()  # 用于存储有效的节点
 
     try:
         # 启动客户端
         await client.start()
 
-        # 获取所有群组消息
-        results = await fetch_all_messages_with_rate_limit(client, group_links)
+        now = datetime.now(timezone.utc)
+        all_links = set()
 
-        # 处理每个群组的结果
-        for link, messages in results:
-            nodes = []
-            for index, message in enumerate(messages):
-                if message.text:
-                    matches = url_pattern.findall(message.text)
-                    for match in matches:
-                        if "vmess://" in match:
-                            node = parse_vmess_node(match, index)
-                        elif "ss://" in match:
-                            node = parse_ss_node(match, index)
-                        elif "trojan://" in match:
-                            node = parse_trojan_node(match, index)
-                        elif "vless://" in match:
-                            node = parse_vless_node(match, index)
-                        elif "tuic://" in match:
-                            node = parse_tuic_node(match, index)
-                        elif "hysteria://" in match:
-                            node = parse_hysteria_node(match, index)
-                        elif "hysteria2://" in match:
-                            node = parse_hysteria2_node(match, index)
-                        
-                        if node:
-                            nodes.append(node)
-            
-            group_stats[link] = len(nodes)
-            logging.info(f"抓取到 {link} 的节点数：{len(nodes)}")
+        # 设置时间范围循环：从1小时到24小时
+        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
+        for hours in time_ranges:
+            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
+            since = now - timedelta(hours=hours)
+            group_stats.clear()  # 清除之前的统计数据
 
-        # 生成订阅文件
-        await generate_subscribe_file([json.dumps(node) for node in nodes])
+            # 并发抓取每个群组的消息
+            results = await fetch_all_messages_with_rate_limit(client, group_links)
 
-    finally:
-        await client.disconnect()
+            # 如果没有符合要求的节点，进入下一个时间范围
+            any_valid_node = False
 
-if __name__ == "__main__":
-    asyncio.run(main())
+            for link, messages in results:
+                group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
+
+                for message in messages:
+                    if message.date < since:
+                        continue
+                    found = url_pattern.findall(message.message or '')
+                    all_links.update(found)
+
+                    # 统计成功的节点
+                    for idx, node in enumerate(found):
+                        parsed_node = parse_node(node, idx)
+                        if parsed_node:
+                            valid_nodes.add(node)
+                            group_stats[link]["success"] += 1
+                        else:
+                            group_stats[link]["failed"] += 1
+
+            if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
+                any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
+                break  # 退出循环，抓取已完成
+
+        if not any_valid_node:
+            logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
+            return  # 如果没有符合要求的节点，停止脚本执行
+
+        logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
+        unique_nodes = list(valid_nodes)
+
+        # 仅生成 sub 文件
+        await generate_subscribe_file(unique_nodes)
+
+        logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
+
+        # 输出群组统计信息
+        logging.info("📊 抓取统计:")
+        for group_link, stats in group_stats.items():
+            logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
+
+    except Exception as e:
+        logging.error(f"🛑 登录失败:
