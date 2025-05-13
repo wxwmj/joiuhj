@@ -276,52 +276,40 @@ async def main():
         # 启动客户端
         await client.start()
 
-        now = datetime.now(timezone.utc)
-        all_links = set()
+        # 获取所有群组消息
+        results = await fetch_all_messages_with_rate_limit(client, group_links)
 
-        # 设置时间范围循环：从1小时到24小时
-        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
-        for hours in time_ranges:
-            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
-            since = now - timedelta(hours=hours)
-            group_stats.clear()  # 清除之前的统计数据
-
-            # 并发抓取每个群组的消息
-            results = await fetch_all_messages_with_rate_limit(client, group_links)
-
-            # 如果没有符合要求的链接，继续执行下一个时间范围
-            for link, messages in results:
-                for message in messages:
+        # 处理每个群组的结果
+        for link, messages in results:
+            nodes = []
+            for index, message in enumerate(messages):
+                if message.text:
                     matches = url_pattern.findall(message.text)
-                    all_links.update(matches)
-
-        # 节点解析
-        parsed_nodes = []
-        for index, url in enumerate(all_links):
-            node = None
-            if url.startswith("vmess://"):
-                node = parse_vmess_node(url, index)
-            elif url.startswith("trojan://"):
-                node = parse_trojan_node(url, index)
-            elif url.startswith("vless://"):
-                node = parse_vless_node(url, index)
-            elif url.startswith("ss://"):
-                node = parse_ss_node(url, index)
-            elif url.startswith("tuic://"):
-                node = parse_tuic_node(url, index)
-            elif url.startswith("hysteria://"):
-                node = parse_hysteria_node(url, index)
-            elif url.startswith("hysteria2://"):
-                node = parse_hysteria2_node(url, index)
-
-            if node:
-                parsed_nodes.append(node)
+                    for match in matches:
+                        if "vmess://" in match:
+                            node = parse_vmess_node(match, index)
+                        elif "ss://" in match:
+                            node = parse_ss_node(match, index)
+                        elif "trojan://" in match:
+                            node = parse_trojan_node(match, index)
+                        elif "vless://" in match:
+                            node = parse_vless_node(match, index)
+                        elif "tuic://" in match:
+                            node = parse_tuic_node(match, index)
+                        elif "hysteria://" in match:
+                            node = parse_hysteria_node(match, index)
+                        elif "hysteria2://" in match:
+                            node = parse_hysteria2_node(match, index)
+                        
+                        if node:
+                            nodes.append(node)
+            
+            group_stats[link] = len(nodes)
+            logging.info(f"抓取到 {link} 的节点数：{len(nodes)}")
 
         # 生成订阅文件
-        await generate_subscribe_file([json.dumps(node) for node in parsed_nodes])
+        await generate_subscribe_file([json.dumps(node) for node in nodes])
 
-    except Exception as e:
-        logging.error(f"抓取过程中发生错误: {e}")
     finally:
         await client.disconnect()
 
