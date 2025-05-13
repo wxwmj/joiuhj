@@ -32,21 +32,21 @@ logging.basicConfig(level=logging.INFO,
 
 # 原始群组链接（可含重复）
 raw_group_links = [
-    'https://t.me/VPN365R',
     'https://t.me/ConfigsHUB2',
-    'https://t.me/free_outline_keys',
     'https://t.me/config_proxy',
+    'https://t.me/free_outline_keys',
     'https://t.me/freenettir',
+    'https://t.me/v2ray_configs_pool',
+    'https://t.me/VPN365R',
+    'https://t.me/DailyV2RY',
+    'https://t.me/Trick_mobil',
+    'https://t.me/vpnplusee_free',
+    'https://t.me/daily_configs',
     'https://t.me/oneclickvpnkeys',
-    'https://t.me/entryNET',
-    'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
-    'https://t.me/daily_configs',
-    'https://t.me/DailyV2RY',
-      'https://t.me/VPN365R',
-    'https://t.me/ConfigsHUB2',
-    'https://t.me/free_outline_keys',
-    'https://t.me/config_proxy',
+    'https://t.me/V2All',
+    'https://t.me/Outline_FreeKey',
+    'https://t.me/V2ranNG_vpn',
+    'https://t.me/v2rey_grum',
 ]
 
 # 去重处理，并记录重复项
