@@ -2,10 +2,10 @@ name: Auto Update Subscriptions
 
 on:
   schedule:
-    - cron: '0 4 * * *'
-    - cron: '0 8 * * *'
-    - cron: '0 10 * * *'
-    - cron: '0 13 * * *'
+    - cron: '0 16 * * *'  # 每天 00:00（北京时间）
+    - cron: '0 22 * * *'  # 每天 06:00（北京时间）
+    - cron: '0 4 * * *'   # 每天 12:00（北京时间）
+    - cron: '0 10 * * *'  # 每天 18:00（北京时间）
   workflow_dispatch:
 
 jobs:
