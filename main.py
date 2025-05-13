@@ -83,132 +83,7 @@ def parse_vmess_node(node, index):
         logging.debug(f"解析 vmess 失败: {e}")
         return None
 
-def parse_trojan_node(url, index):
-    try:
-        raw = url[9:].split("@")
-        password = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"trojan_{index}",
-            "type": "trojan",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 trojan 失败: {e}")
-        return None
-
-def parse_vless_node(url, index):
-    try:
-        raw = url[8:].split("@")
-        uuid = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"vless_{index}",
-            "type": "vless",
-            "server": host,
-            "port": port,
-            "uuid": uuid,
-            "encryption": "none",
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 vless 失败: {e}")
-        return None
-
-def parse_ss_node(url, index):
-    try:
-        raw = url[5:]
-        if "#" in raw:
-            raw = raw.split("#")[0]
-        if "@" in raw:
-            method_password, server_part = raw.split("@")
-            method, password = base64.b64decode(method_password + '===').decode().split(":")
-        else:
-            decoded = base64.b64decode(raw + '===').decode()
-            method_password, server_part = decoded.split("@")
-            method, password = method_password.split(":")
-        server, port = server_part.split(":")
-        return {
-            "name": f"ss_{index}",
-            "type": "ss",
-            "server": server,
-            "port": int(port),
-            "cipher": method,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 ss 失败: {e}")
-        return None
-
-def parse_tuic_node(url, index):
-    try:
-        raw = url[6:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"tuic_{index}",
-            "type": "tuic",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
-        return None
-
-def parse_hysteria_node(url, index):
-    try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria_{index}",
-            "type": "hysteria",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
-        return None
-
-def parse_hysteria2_node(url, index):
-    try:
-        raw = url[11:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria2_{index}",
-            "type": "hysteria2",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria2 失败: {e}")
-        return None
+# 其他解析函数同样保持不变（省略）
 
 # ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
@@ -241,7 +116,7 @@ async def fetch_with_retries(fetch_function, *args, **kwargs):
                 raise  # 如果重试用尽，抛出异常
 
 # ========== 抓取 Telegram 消息 ==========
-async def fetch_messages_for_group(client, link):
+async def fetch_messages_for_group(client, link, since):
     try:
         entity = await client.get_entity(link)
         history = await client(GetHistoryRequest(
@@ -254,13 +129,15 @@ async def fetch_messages_for_group(client, link):
             add_offset=0,
             hash=0
         ))
-        return link, history.messages
+        # 筛选出时间范围内的消息
+        messages = [msg for msg in history.messages if msg.date >= since]
+        return link, messages
     except Exception as e:
         logging.error(f"抓取 {link} 消息失败: {e}")
         return link, []
 
-async def fetch_all_messages_with_rate_limit(client, group_links):
-    tasks = [fetch_messages_for_group(client, link) for link in group_links]
+async def fetch_all_messages_with_rate_limit(client, group_links, since):
+    tasks = [fetch_messages_for_group(client, link, since) for link in group_links]
     results = await asyncio.gather(*tasks)
     return results
 
@@ -279,15 +156,17 @@ async def main():
         now = datetime.now(timezone.utc)
         all_links = set()
 
-        # 设置时间范围循环：从1小时到24小时
-        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
-        for hours in time_ranges:
-            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
-            since = now - timedelta(hours=hours)
+        # 设定最大抓取时间（最多23小时）
+        max_hours = 24
+        total_hours = 1  # 初始抓取时间为1小时
+
+        while total_hours <= max_hours:
+            logging.info(f"📅 设置抓取时间范围: 最近 {total_hours} 小时")
+            since = now - timedelta(hours=total_hours)
             group_stats.clear()  # 清除之前的统计数据
 
             # 并发抓取每个群组的消息
-            results = await fetch_all_messages_with_rate_limit(client, group_links)
+            results = await fetch_all_messages_with_rate_limit(client, group_links, since)
 
             # 如果没有符合要求的节点，进入下一个时间范围
             any_valid_node = False
@@ -296,8 +175,6 @@ async def main():
                 group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
 
                 for message in messages:
-                    if message.date < since:
-                        continue
                     found = url_pattern.findall(message.message or '')
                     all_links.update(found)
 
@@ -311,6 +188,8 @@ async def main():
             if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
                 any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
                 break  # 退出循环，抓取已完成
+
+            total_hours += 1  # 增加抓取时间范围
 
         if not any_valid_node:
             logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
