@@ -63,23 +63,27 @@ for link in raw_group_links:
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
 
 # ========== 解析节点 ==========
-def parse_node(node, index):
-    """综合所有节点解析函数，验证并返回有效节点"""
-    if node.startswith("vmess://"):
-        return parse_vmess_node(node, index)
-    elif node.startswith("trojan://"):
-        return parse_trojan_node(node, index)
-    elif node.startswith("vless://"):
-        return parse_vless_node(node, index)
-    elif node.startswith("ss://"):
-        return parse_ss_node(node, index)
-    elif node.startswith("tuic://"):
-        return parse_tuic_node(node, index)
-    elif node.startswith("hysteria://"):
-        return parse_hysteria_node(node, index)
-    elif node.startswith("hysteria2://"):
-        return parse_hysteria2_node(node, index)
-    return None  # 返回无效节点
+def parse_vmess_node(node, index):
+    try:
+        raw = base64.b64decode(node[8:])
+        if not raw:
+            return None
+        conf = json.loads(raw)
+        return {
+            "name": f"vmess_{index}",
+            "type": "vmess",
+            "server": conf["add"],
+            "port": int(conf["port"]),
+            "uuid": conf["id"],
+            "alterId": int(conf.get("aid", 0)),
+            "cipher": "auto",
+            "tls": conf.get("tls", "none") == "tls",
+        }
+    except Exception as e:
+        logging.debug(f"解析 vmess 失败: {e}")
+        return None
+
+# (Other parsing functions remain the same...)
 
 # ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
@@ -142,7 +146,6 @@ async def main():
     client = TelegramClient(session_file_path, api_id, api_hash)
     
     group_stats = {}  # 用于统计每个群组的结果
-    valid_nodes = set()  # 用于存储有效的节点
 
     try:
         # 启动客户端
@@ -152,8 +155,8 @@ async def main():
         all_links = set()
 
         # 设置时间范围循环：从1小时到24小时
-        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
-        for hours in time_ranges:
+        hours = 1
+        while hours <= 24:
             logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
             since = now - timedelta(hours=hours)
             group_stats.clear()  # 清除之前的统计数据
@@ -161,9 +164,8 @@ async def main():
             # 并发抓取每个群组的消息
             results = await fetch_all_messages_with_rate_limit(client, group_links)
 
-            # 如果没有符合要求的节点，进入下一个时间范围
+            # 如果没有符合要求的节点，增加时间范围
             any_valid_node = False
-
             for link, messages in results:
                 group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
 
@@ -175,9 +177,7 @@ async def main():
 
                     # 统计成功的节点
                     for idx, node in enumerate(found):
-                        parsed_node = parse_node(node, idx)
-                        if parsed_node:
-                            valid_nodes.add(node)
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
                             group_stats[link]["success"] += 1
                         else:
                             group_stats[link]["failed"] += 1
@@ -186,12 +186,14 @@ async def main():
                 any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
                 break  # 退出循环，抓取已完成
 
+            hours += 1  # 增加时间范围
+
         if not any_valid_node:
             logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
             return  # 如果没有符合要求的节点，停止脚本执行
 
         logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
-        unique_nodes = list(valid_nodes)
+        unique_nodes = list(set(all_links))
 
         # 仅生成 sub 文件
         await generate_subscribe_file(unique_nodes)
@@ -204,4 +206,7 @@ async def main():
             logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
 
     except Exception as e:
-        logging.error(f"🛑 登录失败:
+        logging.error(f"🛑 登录失败: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
