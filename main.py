@@ -281,4 +281,109 @@ async def generate_clash_file(parsed_nodes):
                 proxies.append({
                     "name": node["name"],
                     "type": "ss",
-                    "
+                    "server": node["server"],
+                    "port": node["port"],
+                    "cipher": node["cipher"],
+                    "password": node["password"],
+                    "udp": node.get("udp", True)
+                })
+            elif node["type"] == "tuic":
+                proxies.append({
+                    "name": node["name"],
+                    "type": "tuic",
+                    "server": node["server"],
+                    "port": node["port"],
+                    "password": node["password"],
+                    "udp": node.get("udp", True)
+                })
+            elif node["type"] == "hysteria":
+                proxies.append({
+                    "name": node["name"],
+                    "type": "hysteria",
+                    "server": node["server"],
+                    "port": node["port"],
+                    "password": node["password"],
+                    "udp": node.get("udp", True)
+                })
+            elif node["type"] == "hysteria2":
+                proxies.append({
+                    "name": node["name"],
+                    "type": "hysteria2",
+                    "server": node["server"],
+                    "port": node["port"],
+                    "password": node["password"],
+                    "udp": node.get("udp", True)
+                })
+
+        clash_config = {
+            "proxies": proxies,
+            "proxy-groups": [
+                {
+                    "name": "自动选择",
+                    "type": "select",
+                    "proxies": [p["name"] for p in proxies]
+                }
+            ],
+            "rules": [
+                "MATCH, 自动选择"
+            ]
+        }
+
+        with open("clash", "w", encoding="utf-8") as f:
+            yaml.dump(clash_config, f, allow_unicode=True)
+        logging.info("🎉 Clash 配置文件生成完毕：clash")
+    except Exception as e:
+        logging.error(f"生成 Clash 文件失败: {e}")
+
+# ========== 主逻辑 ==========
+async def main():
+    client = TelegramClient(session_file_path, api_id, api_hash)
+    await client.start()
+    all_nodes = []
+
+    start_time = datetime.now(timezone.utc) - timedelta(days=1)
+
+    for group_link in group_links:
+        try:
+            entity = await client.get_entity(group_link)
+            history = await client(GetHistoryRequest(
+                peer=entity,
+                limit=100,
+                offset_date=None,
+                offset_id=0,
+                max_id=0,
+                min_id=0,
+                add_offset=0,
+                hash=0
+            ))
+
+            for message in history.messages:
+                if message.date < start_time:
+                    continue
+                if not message.message:
+                    continue
+                urls = url_pattern.findall(message.message)
+                all_nodes.extend(urls)
+        except Exception as e:
+            logging.error(f"获取群组消息失败 {group_link}: {e}")
+
+    # 去重
+    all_nodes = list(set(all_nodes))
+    logging.info(f"抓取到节点数：{len(all_nodes)}")
+
+    parsed_nodes = []
+    for idx, node_url in enumerate(all_nodes, 1):
+        parsed = parse_node_url(node_url, idx)
+        if parsed:
+            parsed_nodes.append(parsed)
+
+    # 生成 base64 订阅文件
+    await generate_subscribe_file(all_nodes)
+
+    # 生成 clash 配置文件
+    await generate_clash_file(parsed_nodes)
+
+    await client.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(main())
