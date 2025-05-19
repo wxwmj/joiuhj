@@ -33,14 +33,14 @@ jobs:
         SESSION_B64: ${{ secrets.SESSION_B64 }}
       run: python main.py
 
-    - name: Check if 'sub' or 'clash' files exist and commit changes
+    - name: Check if 'sub' file exists and commit changes
       run: |
-        if [ -f "sub" ] || [ -f "clash" ]; then
+        if [ -f "sub" ]; then
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add sub clash
-          git commit -m "Auto update subscription and clash files" || echo "No changes"
+          git add sub
+          git commit -m "Auto update subscription file" || echo "No changes"
           git push
         else
-          echo "No 'sub' or 'clash' files to commit."
+          echo "No 'sub' file to commit."
         fi
