@@ -279,4 +279,58 @@ async def main():
         now = datetime.now(timezone.utc)
         all_links = set()
 
-        # 设置时间范围循环：
+        # 设置时间范围循环：从1小时到24小时
+        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
+        for hours in time_ranges:
+            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
+            since = now - timedelta(hours=hours)
+            group_stats.clear()  # 清除之前的统计数据
+
+            # 并发抓取每个群组的消息
+            results = await fetch_all_messages_with_rate_limit(client, group_links)
+
+            # 如果没有符合要求的节点，进入下一个时间范围
+            any_valid_node = False
+
+            for link, messages in results:
+                group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
+
+                for message in messages:
+                    if message.date < since:
+                        continue
+                    found = url_pattern.findall(message.message or '')
+                    all_links.update(found)
+
+                    # 统计成功的节点
+                    for idx, node in enumerate(found):
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
+                            group_stats[link]["success"] += 1
+                        else:
+                            group_stats[link]["failed"] += 1
+
+            if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
+                any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
+                break  # 退出循环，抓取已完成
+
+        if not any_valid_node:
+            logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
+            return  # 如果没有符合要求的节点，停止脚本执行
+
+        logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
+        unique_nodes = list(set(all_links))
+
+        # 仅生成 sub 文件
+        await generate_subscribe_file(unique_nodes)
+
+        logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
+
+        # 输出群组统计信息
+        logging.info("📊 抓取统计:")
+        for group_link, stats in group_stats.items():
+            logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
+
+    except Exception as e:
+        logging.error(f"🛑 登录失败: {e}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
