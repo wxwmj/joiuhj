@@ -8,7 +8,6 @@ import random
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-import yaml  # 需要提前 pip install pyyaml
 
 # ========== 配置 ==========
 api_id_str = os.getenv("API_ID")
@@ -31,6 +30,7 @@ logging.basicConfig(level=logging.INFO,
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
+# 原始群组链接（可含重复）
 raw_group_links = [
     'https://t.me/ConfigsHUB2',
     'https://t.me/config_proxy',
@@ -49,7 +49,7 @@ raw_group_links = [
     'https://t.me/v2rey_grum',
 ]
 
-# 去重
+# 去重处理，并记录重复项
 group_links = []
 seen = set()
 for link in raw_group_links:
@@ -59,9 +59,10 @@ for link in raw_group_links:
     else:
         logging.warning(f"重复群组链接已忽略：{link}")
 
+# 匹配链接的正则表达式
 url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
 
-# ========== 节点解析 ==========
+# ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
         raw = base64.b64decode(node[8:])
@@ -209,181 +210,127 @@ def parse_hysteria2_node(url, index):
         logging.debug(f"解析 hysteria2 失败: {e}")
         return None
 
-# 统一解析接口
-def parse_node_url(url, index):
-    if url.startswith("vmess://"):
-        return parse_vmess_node(url, index)
-    if url.startswith("trojan://"):
-        return parse_trojan_node(url, index)
-    if url.startswith("vless://"):
-        return parse_vless_node(url, index)
-    if url.startswith("ss://"):
-        return parse_ss_node(url, index)
-    if url.startswith("tuic://"):
-        return parse_tuic_node(url, index)
-    if url.startswith("hysteria://"):
-        return parse_hysteria_node(url, index)
-    if url.startswith("hysteria2://"):
-        return parse_hysteria2_node(url, index)
-    return None
-
-# ========== 生成 base64 订阅文件 ==========
+# ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
     try:
+        # 生成 base64 编码订阅
         joined_nodes = "\n".join(nodes)
         encoded = base64.b64encode(joined_nodes.encode()).decode()
         with open("sub", "w", encoding="utf-8") as f:
             f.write(encoded)
-        logging.info("🎉 订阅文件生成完毕：sub")
+        logging.info("🎉 订阅文件生成完毕")
     except Exception as e:
         logging.error(f"生成订阅失败: {e}")
 
-# ========== 生成 Clash 配置文件 ==========
-async def generate_clash_file(parsed_nodes):
-    try:
-        # 生成 Clash 配置格式
-        proxies = []
-        for node in parsed_nodes:
-            if node is None:
-                continue
-            # 按类型生成对应格式，简单示例
-            if node["type"] == "vmess":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "vmess",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "uuid": node["uuid"],
-                    "alterId": node.get("alterId", 0),
-                    "cipher": node.get("cipher", "auto"),
-                    "tls": node.get("tls", False),
-                })
-            elif node["type"] == "trojan":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "trojan",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "password": node["password"],
-                    "udp": node.get("udp", True)
-                })
-            elif node["type"] == "vless":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "vless",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "uuid": node["uuid"],
-                    "encryption": node.get("encryption", "none"),
-                    "udp": node.get("udp", True),
-                })
-            elif node["type"] == "ss":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "ss",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "cipher": node["cipher"],
-                    "password": node["password"],
-                    "udp": node.get("udp", True)
-                })
-            elif node["type"] == "tuic":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "tuic",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "password": node["password"],
-                    "udp": node.get("udp", True)
-                })
-            elif node["type"] == "hysteria":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "hysteria",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "password": node["password"],
-                    "udp": node.get("udp", True)
-                })
-            elif node["type"] == "hysteria2":
-                proxies.append({
-                    "name": node["name"],
-                    "type": "hysteria2",
-                    "server": node["server"],
-                    "port": node["port"],
-                    "password": node["password"],
-                    "udp": node.get("udp", True)
-                })
+# ========== 错误处理与重试机制 ==========
+MAX_RETRIES = 3
+RETRY_DELAY = 2  # 每次重试的延迟时间，单位秒
 
-        clash_config = {
-            "proxies": proxies,
-            "proxy-groups": [
-                {
-                    "name": "自动选择",
-                    "type": "select",
-                    "proxies": [p["name"] for p in proxies]
-                }
-            ],
-            "rules": [
-                "MATCH, 自动选择"
-            ]
-        }
-
-        with open("clash", "w", encoding="utf-8") as f:
-            yaml.dump(clash_config, f, allow_unicode=True)
-        logging.info("🎉 Clash 配置文件生成完毕：clash")
-    except Exception as e:
-        logging.error(f"生成 Clash 文件失败: {e}")
-
-# ========== 主逻辑 ==========
-async def main():
-    client = TelegramClient(session_file_path, api_id, api_hash)
-    await client.start()
-    all_nodes = []
-
-    start_time = datetime.now(timezone.utc) - timedelta(days=1)
-
-    for group_link in group_links:
+async def fetch_with_retries(fetch_function, *args, **kwargs):
+    """添加重试机制，处理瞬时网络问题"""
+    for attempt in range(MAX_RETRIES):
         try:
-            entity = await client.get_entity(group_link)
-            history = await client(GetHistoryRequest(
-                peer=entity,
-                limit=100,
-                offset_date=None,
-                offset_id=0,
-                max_id=0,
-                min_id=0,
-                add_offset=0,
-                hash=0
-            ))
-
-            for message in history.messages:
-                if message.date < start_time:
-                    continue
-                if not message.message:
-                    continue
-                urls = url_pattern.findall(message.message)
-                all_nodes.extend(urls)
+            return await fetch_function(*args, **kwargs)
         except Exception as e:
-            logging.error(f"获取群组消息失败 {group_link}: {e}")
+            if attempt < MAX_RETRIES - 1:
+                delay = random.uniform(RETRY_DELAY, RETRY_DELAY * 2)  # 随机延迟
+                logging.debug(f"第{attempt + 1}次重试失败: {e}，等待 {delay:.2f} 秒")
+                await asyncio.sleep(delay)
+            else:
+                logging.error(f"重试失败: {e}")
+                raise  # 如果重试用尽，抛出异常
 
-    # 去重
-    all_nodes = list(set(all_nodes))
-    logging.info(f"抓取到节点数：{len(all_nodes)}")
+# ========== 抓取 Telegram 消息 ==========
+async def fetch_messages_for_group(client, link):
+    try:
+        entity = await client.get_entity(link)
+        history = await client(GetHistoryRequest(
+            peer=entity,
+            limit=100,
+            offset_date=None,
+            offset_id=0,
+            max_id=0,
+            min_id=0,
+            add_offset=0,
+            hash=0
+        ))
+        return link, history.messages
+    except Exception as e:
+        logging.error(f"抓取 {link} 消息失败: {e}")
+        return link, []
 
-    parsed_nodes = []
-    for idx, node_url in enumerate(all_nodes, 1):
-        parsed = parse_node_url(node_url, idx)
-        if parsed:
-            parsed_nodes.append(parsed)
+async def fetch_all_messages_with_rate_limit(client, group_links):
+    tasks = [fetch_messages_for_group(client, link) for link in group_links]
+    results = await asyncio.gather(*tasks)
+    return results
 
-    # 生成 base64 订阅文件
-    await generate_subscribe_file(all_nodes)
+# ========== 主函数 ==========
+async def main():
+    logging.info("🚀 开始抓取 Telegram 节点")
+    
+    client = TelegramClient(session_file_path, api_id, api_hash)
+    
+    group_stats = {}  # 用于统计每个群组的结果
 
-    # 生成 clash 配置文件
-    await generate_clash_file(parsed_nodes)
+    try:
+        # 启动客户端
+        await client.start()
 
-    await client.disconnect()
+        now = datetime.now(timezone.utc)
+        all_links = set()
+
+        # 设置时间范围循环：从1小时到24小时
+        time_ranges = [1, 3, 6, 12, 24]  # 时间范围，单位为小时
+        for hours in time_ranges:
+            logging.info(f"📅 设置抓取时间范围: 最近 {hours} 小时")
+            since = now - timedelta(hours=hours)
+            group_stats.clear()  # 清除之前的统计数据
+
+            # 并发抓取每个群组的消息
+            results = await fetch_all_messages_with_rate_limit(client, group_links)
+
+            # 如果没有符合要求的节点，进入下一个时间范围
+            any_valid_node = False
+
+            for link, messages in results:
+                group_stats[link] = {"success": 0, "failed": 0}  # 初始化每个群组的统计
+
+                for message in messages:
+                    if message.date < since:
+                        continue
+                    found = url_pattern.findall(message.message or '')
+                    all_links.update(found)
+
+                    # 统计成功的节点
+                    for idx, node in enumerate(found):
+                        if parse_vmess_node(node, idx) or parse_trojan_node(node, idx) or parse_vless_node(node, idx) or parse_ss_node(node, idx) or parse_tuic_node(node, idx) or parse_hysteria_node(node, idx) or parse_hysteria2_node(node, idx):
+                            group_stats[link]["success"] += 1
+                        else:
+                            group_stats[link]["failed"] += 1
+
+            if group_stats and any(stats["success"] > 0 for stats in group_stats.values()):
+                any_valid_node = True  # 如果有符合要求的节点，停止调整时间范围
+                break  # 退出循环，抓取已完成
+
+        if not any_valid_node:
+            logging.error("没有抓取到符合要求的节点，请检查群组配置或网络连接。")
+            return  # 如果没有符合要求的节点，停止脚本执行
+
+        logging.info(f"🔗 抓取完成，共抓取 {len(all_links)} 个节点")
+        unique_nodes = list(set(all_links))
+
+        # 仅生成 sub 文件
+        await generate_subscribe_file(unique_nodes)
+
+        logging.info(f"💾 保存节点配置完成，节点数：{len(unique_nodes)}")
+
+        # 输出群组统计信息
+        logging.info("📊 抓取统计:")
+        for group_link, stats in group_stats.items():
+            logging.info(f"{group_link}: 成功 {stats['success']}，失败 {stats['failed']}")
+
+    except Exception as e:
+        logging.error(f"🛑 登录失败: {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
