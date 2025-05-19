@@ -334,3 +334,94 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+def generate_clash_config(parsed_nodes):
+    try:
+        clash_proxies = []
+        proxy_names = []
+
+        for node in parsed_nodes:
+            if node is None:
+                continue
+            proxy_names.append(node["name"])
+            clash_proxies.append(node)
+
+        if not clash_proxies:
+            logging.warning("⚠️ 没有可用的 Clash 节点")
+            return
+
+        clash_config = {
+            "port": 7890,
+            "socks-port": 7891,
+            "allow-lan": True,
+            "mode": "Rule",
+            "log-level": "info",
+            "external-controller": "127.0.0.1:9090",
+            "dns": {
+                "enable": True,
+                "ipv6": False,
+                "enhanced-mode": "fake-ip",
+                "nameservers": ["https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"]
+            },
+            "proxies": clash_proxies,
+            "proxy-groups": [
+                {
+                    "name": "🚀 节点选择",
+                    "type": "select",
+                    "proxies": ["♻️ 自动选择", "🇭🇰 香港", "🇯🇵 日本", "🇸🇬 新加坡"] + proxy_names
+                },
+                {
+                    "name": "♻️ 自动选择",
+                    "type": "url-test",
+                    "url": "http://www.gstatic.com/generate_204",
+                    "interval": 300,
+                    "proxies": proxy_names
+                },
+                {
+                    "name": "🎯 全球直连",
+                    "type": "direct"
+                },
+                {
+                    "name": "🛑 拦截域名",
+                    "type": "reject"
+                },
+                {
+                    "name": "🇭🇰 香港",
+                    "type": "select",
+                    "proxies": [p for p in proxy_names if "hk" in p.lower() or "香港" in p]
+                },
+                {
+                    "name": "🇯🇵 日本",
+                    "type": "select",
+                    "proxies": [p for p in proxy_names if "jp" in p.lower() or "日本" in p]
+                },
+                {
+                    "name": "🇸🇬 新加坡",
+                    "type": "select",
+                    "proxies": [p for p in proxy_names if "sg" in p.lower() or "新加坡" in p]
+                }
+            ],
+            "rule-providers": {
+                "puddingdog": {
+                    "type": "http",
+                    "behavior": "classical",
+                    "path": "./ruleset/puddingdog.yaml",
+                    "url": "https://raw.githubusercontent.com/DivineEngine/Profiles/master/Clash/RuleSet/StreamingMedia/YouTube.yaml",
+                    "interval": 86400
+                }
+            },
+            "rules": [
+                "RULE-SET,puddingdog,🚀 节点选择",
+                "MATCH,🎯 全球直连"
+            ]
+        }
+
+        with open("wxx.yaml", "w", encoding="utf-8") as f:
+            yaml_str = json.dumps(clash_config, indent=2, ensure_ascii=False)
+            f.write(yaml_str.replace('"', ''))  # Clash 格式更接近 YAML，这里简化处理
+
+        logging.info("✅ Clash 配置 wxx.yaml 已生成")
+
+    except Exception as e:
+        logging.error(f"生成 Clash 配置失败: {e}")
+
