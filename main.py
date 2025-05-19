@@ -249,4 +249,4 @@ async def main():
                 if node:
                     all_nodes.append(node)
         except Exception as e:
-            logging.warning(f"抓取频道 {username} 失败
+            logging.warning(f"抓取频道 {username} 失败")
