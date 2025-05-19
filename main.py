@@ -4,34 +4,28 @@ import logging
 import json
 import re
 import asyncio
-import random
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 import yaml
 
-# ========== 配置 ==========
-api_id_str = os.getenv("API_ID")
-api_hash = os.getenv("API_HASH")
-session_b64 = os.getenv("SESSION_B64")
+# ======== 配置部分 ========
+API_ID_STR = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+SESSION_B64 = os.getenv("SESSION_B64")
 
-if not all([api_id_str, api_hash, session_b64]):
-    raise ValueError("❌ 缺少环境变量：API_ID、API_HASH 或 SESSION_B64")
+if not all([API_ID_STR, API_HASH, SESSION_B64]):
+    raise ValueError("缺少环境变量 API_ID、API_HASH 或 SESSION_B64，请设置后再运行")
 
-api_id = int(api_id_str)
+API_ID = int(API_ID_STR)
 
-# Decode SESSION_B64 to get the actual session binary data
-session_file_path = "session.session"
-with open(session_file_path, "wb") as session_file:
-    session_file.write(base64.b64decode(session_b64))
+# 将 base64 编码的 session 解码为本地文件，供 Telethon 使用
+SESSION_FILE = "session.session"
+with open(SESSION_FILE, "wb") as f:
+    f.write(base64.b64decode(SESSION_B64))
 
-# ========== 日志配置 ==========
-logging.basicConfig(level=logging.INFO,
-    format='%(asctime)s - %(message)s',
-    handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
-)
-
-raw_group_links = [
+# Telegram 群组链接列表（你可以替换为你想抓取的群组）
+GROUP_LINKS = list(set([
     'https://t.me/ConfigsHUB2',
     'https://t.me/config_proxy',
     'https://t.me/free_outline_keys',
@@ -47,313 +41,171 @@ raw_group_links = [
     'https://t.me/Outline_FreeKey',
     'https://t.me/V2ranNG_vpn',
     'https://t.me/v2rey_grum',
-]
+]))
 
-# 去重处理
-group_links = list(set(raw_group_links))
+# 节点链接匹配正则
+NODE_PATTERN = re.compile(
+    r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)',
+    re.IGNORECASE
+)
 
-# 匹配节点链接的正则表达式
-url_pattern = re.compile(r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)', re.IGNORECASE)
-
-# ========== 节点解析函数 ==========
-def parse_vmess_node(node, index):
+# ======= 节点解析函数 =========
+def parse_vmess(node: str, idx: int):
     try:
-        raw = base64.b64decode(node[8:])
-        if not raw:
-            return None
-        conf = json.loads(raw)
+        b64_str = node[8:]
+        # 补齐base64缺失的等号
+        missing_padding = len(b64_str) % 4
+        if missing_padding != 0:
+            b64_str += "=" * (4 - missing_padding)
+        decoded = base64.b64decode(b64_str).decode()
+        conf = json.loads(decoded)
         return {
-            "name": f"vmess_{index}",
+            "name": f"vmess_{idx}",
             "type": "vmess",
             "server": conf["add"],
             "port": int(conf["port"]),
             "uuid": conf["id"],
             "alterId": int(conf.get("aid", 0)),
             "cipher": "auto",
-            "tls": conf.get("tls", "none") == "tls",
+            "tls": conf.get("tls", "") == "tls",
+            "network": conf.get("net", "tcp"),
         }
     except Exception as e:
-        logging.debug(f"解析 vmess 失败: {e}")
+        logging.debug(f"vmess解析失败: {e}")
         return None
 
-def parse_trojan_node(url, index):
+def parse_trojan(node: str, idx: int):
     try:
-        raw = url[9:].split("@")
-        password = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
+        # trojan://password@host:port?params
+        url = node[9:]
+        password, rest = url.split("@", 1)
+        hostport = rest.split("?", 1)[0]
+        host, port = hostport.split(":")
         return {
-            "name": f"trojan_{index}",
+            "name": f"trojan_{idx}",
             "type": "trojan",
             "server": host,
-            "port": port,
+            "port": int(port),
             "password": password,
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 trojan 失败: {e}")
+        logging.debug(f"trojan解析失败: {e}")
         return None
 
-def parse_vless_node(url, index):
+def parse_vless(node: str, idx: int):
     try:
-        raw = url[8:].split("@")
-        uuid = raw[0]
-        host_port = raw[1].split("?")[0].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
+        # vless://uuid@host:port?params
+        url = node[8:]
+        uuid, rest = url.split("@", 1)
+        hostport = rest.split("?", 1)[0]
+        host, port = hostport.split(":")
         return {
-            "name": f"vless_{index}",
+            "name": f"vless_{idx}",
             "type": "vless",
             "server": host,
-            "port": port,
+            "port": int(port),
             "uuid": uuid,
             "encryption": "none",
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 vless 失败: {e}")
+        logging.debug(f"vless解析失败: {e}")
         return None
 
-def parse_ss_node(url, index):
+def parse_ss(node: str, idx: int):
     try:
-        raw = url[5:]
-        if "#" in raw:
-            raw = raw.split("#")[0]
-        if "@" in raw:
-            method_password, server_part = raw.split("@")
-            method, password = base64.b64decode(method_password + '===').decode().split(":")
+        # ss://base64(method:password)@host:port 或 ss://base64(method:password@host:port)
+        ss_uri = node[5:]
+        # 先处理可能带有#注释，去除
+        ss_uri = ss_uri.split("#")[0]
+        if "@" in ss_uri:
+            # 形如 base64(method:password)@host:port
+            method_pass_b64, server = ss_uri.split("@", 1)
+            # base64 decode
+            missing_padding = len(method_pass_b64) % 4
+            if missing_padding != 0:
+                method_pass_b64 += "=" * (4 - missing_padding)
+            method_pass = base64.b64decode(method_pass_b64).decode()
+            method, password = method_pass.split(":")
+            host, port = server.split(":")
         else:
-            decoded = base64.b64decode(raw + '===').decode()
-            method_password, server_part = decoded.split("@")
-            method, password = method_password.split(":")
-        server, port = server_part.split(":")
+            # 形如 base64(method:password@host:port)
+            missing_padding = len(ss_uri) % 4
+            if missing_padding != 0:
+                ss_uri += "=" * (4 - missing_padding)
+            decoded = base64.b64decode(ss_uri).decode()
+            method_pass, server = decoded.split("@", 1)
+            method, password = method_pass.split(":")
+            host, port = server.split(":")
         return {
-            "name": f"ss_{index}",
+            "name": f"ss_{idx}",
             "type": "ss",
-            "server": server,
+            "server": host,
             "port": int(port),
             "cipher": method,
             "password": password,
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 ss 失败: {e}")
+        logging.debug(f"ss解析失败: {e}")
         return None
 
-def parse_tuic_node(url, index):
+def parse_tuic(node: str, idx: int):
     try:
-        raw = url[6:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
+        url = node[6:]
+        password, rest = url.split("@", 1)
+        host, port = rest.split(":")
         return {
-            "name": f"tuic_{index}",
+            "name": f"tuic_{idx}",
             "type": "tuic",
             "server": host,
-            "port": port,
+            "port": int(port),
             "password": password,
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
+        logging.debug(f"tuic解析失败: {e}")
         return None
 
-def parse_hysteria_node(url, index):
+def parse_hysteria(node: str, idx: int):
     try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
+        url = node[10:]
+        password, rest = url.split("@", 1)
+        host, port = rest.split(":")
         return {
-            "name": f"hysteria_{index}",
+            "name": f"hysteria_{idx}",
             "type": "hysteria",
             "server": host,
-            "port": port,
+            "port": int(port),
             "password": password,
             "udp": True
         }
     except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
+        logging.debug(f"hysteria解析失败: {e}")
         return None
 
-def parse_hysteria2_node(url, index):
-    try:
-        raw = url[11:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria2_{index}",
-            "type": "hysteria2",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria2 失败: {e}")
-        return None
+def parse_node(node: str, idx: int):
+    node = node.strip()
+    if node.startswith("vmess://"):
+        return parse_vmess(node, idx)
+    if node.startswith("ss://"):
+        return parse_ss(node, idx)
+    if node.startswith("trojan://"):
+        return parse_trojan(node, idx)
+    if node.startswith("vless://"):
+        return parse_vless(node, idx)
+    if node.startswith("tuic://"):
+        return parse_tuic(node, idx)
+    if node.startswith("hysteria://"):
+        return parse_hysteria(node, idx)
+    # hysteria2暂时不处理或同hysteria
+    return None
 
-def parse_node(url, index):
-    if url.lower().startswith("vmess://"):
-        return parse_vmess_node(url, index)
-    elif url.lower().startswith("ss://"):
-        return parse_ss_node(url, index)
-    elif url.lower().startswith("trojan://"):
-        return parse_trojan_node(url, index)
-    elif url.lower().startswith("vless://"):
-        return parse_vless_node(url, index)
-    elif url.lower().startswith("tuic://"):
-        return parse_tuic_node(url, index)
-    elif url.lower().startswith("hysteria://"):
-        return parse_hysteria_node(url, index)
-    elif url.lower().startswith("hysteria2://"):
-        return parse_hysteria2_node(url, index)
-    else:
-        return None
-
-# ========== 生成 Clash 配置文件 ==========
-def generate_clash_yaml(nodes):
-    # 生成 proxies 列表
-    proxies = []
-    for node in nodes:
-        if node is None:
-            continue
-        proxy = None
-        t = node.get("type")
-        if t == "vmess":
-            proxy = {
-                "name": node["name"],
-                "type": "vmess",
-                "server": node["server"],
-                "port": node["port"],
-                "uuid": node["uuid"],
-                "alterId": node.get("alterId", 0),
-                "cipher": node.get("cipher", "auto"),
-                "tls": node.get("tls", False),
-                "udp": True,
-            }
-        elif t == "trojan":
-            proxy = {
-                "name": node["name"],
-                "type": "trojan",
-                "server": node["server"],
-                "port": node["port"],
-                "password": node["password"],
-                "udp": node.get("udp", True),
-                "skip-cert-verify": True,
-            }
-        elif t == "vless":
-            proxy = {
-                "name": node["name"],
-                "type": "vless",
-                "server": node["server"],
-                "port": node["port"],
-                "uuid": node["uuid"],
-                "encryption": node.get("encryption", "none"),
-                "udp": node.get("udp", True),
-                "tls": False,
-            }
-        elif t == "ss":
-            proxy = {
-                "name": node["name"],
-                "type": "ss",
-                "server": node["server"],
-                "port": node["port"],
-                "cipher": node["cipher"],
-                "password": node["password"],
-                "udp": node.get("udp", True),
-            }
-        elif t == "tuic":
-            proxy = {
-                "name": node["name"],
-                "type": "tuic",
-                "server": node["server"],
-                "port": node["port"],
-                "password": node["password"],
-                "udp": node.get("udp", True),
-            }
-        elif t == "hysteria":
-            proxy = {
-                "name": node["name"],
-                "type": "hysteria",
-                "server": node["server"],
-                "port": node["port"],
-                "password": node["password"],
-                "udp": node.get("udp", True),
-            }
-        elif t == "hysteria2":
-            proxy = {
-                "name": node["name"],
-                "type": "hysteria2",
-                "server": node["server"],
-                "port": node["port"],
-                "password": node["password"],
-                "udp": node.get("udp", True),
-            }
-        if proxy:
-            proxies.append(proxy)
-
-    # proxy-groups 例子
-    proxy_group = {
-        "name": "Auto",
-        "type": "select",
-        "proxies": [p["name Exception as e:
-        logging.debug(f"解析 tuic 失败: {e}")
-        return None
-
-def parse_hysteria_node(url, index):
-    # 简单示例，需根据实际 hysteria 协议补充
-    try:
-        raw = url[10:].split("@")
-        password = raw[0]
-        host_port = raw[1].split(":")
-        if len(host_port) < 2:
-            return None
-        host, port = host_port[0], int(host_port[1])
-        return {
-            "name": f"hysteria_{index}",
-            "type": "hysteria",
-            "server": host,
-            "port": port,
-            "password": password,
-            "udp": True
-        }
-    except Exception as e:
-        logging.debug(f"解析 hysteria 失败: {e}")
-        return None
-
-def parse_node(link, index):
-    link = link.strip()
-    if link.startswith("vmess://"):
-        return parse_vmess_node(link, index)
-    elif link.startswith("ss://"):
-        return parse_ss_node(link, index)
-    elif link.startswith("trojan://"):
-        return parse_trojan_node(link, index)
-    elif link.startswith("vless://"):
-        return parse_vless_node(link, index)
-    elif link.startswith("tuic://"):
-        return parse_tuic_node(link, index)
-    elif link.startswith("hysteria://"):
-        return parse_hysteria_node(link, index)
-    else:
-        return None
-
-# ========== Telegram 登录和抓取 ==========
+# ========== Telegram 抓取消息 ==========
 async def fetch_messages(client, channel_username, limit=200):
     all_links = []
     offset_id = 0
-    total_messages = 0
     while True:
         history = await client(GetHistoryRequest(
             peer=channel_username,
@@ -367,89 +219,34 @@ async def fetch_messages(client, channel_username, limit=200):
         ))
         if not history.messages:
             break
-        total_messages += len(history.messages)
-        for message in history.messages:
-            if hasattr(message, "message") and message.message:
-                found_links = url_pattern.findall(message.message)
-                all_links.extend(found_links)
+        for msg in history.messages:
+            if hasattr(msg, "message") and msg.message:
+                found = NODE_PATTERN.findall(msg.message)
+                all_links.extend(found)
         offset_id = history.messages[-1].id
-        # 限制抓取最近7天消息
+        # 只抓取最近7天消息
         if history.messages[-1].date < datetime.now(timezone.utc) - timedelta(days=7):
             break
-    logging.info(f"从频道 {channel_username} 抓取消息数: {total_messages}, 链接数: {len(all_links)}")
-    return list(set(all_links))  # 去重
+    return list(set(all_links))
 
+# ========== 主程序 ==========
 async def main():
-    client = TelegramClient(session_file_path, api_id, api_hash)
+    logging.info("开始登录 Telegram 客户端...")
+    client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
     await client.start()
     all_nodes = []
-    index = 0
+    idx = 0
 
-    for group_url in group_links:
-        group_username = group_url.split("t.me/")[-1].strip("/")
-        logging.info(f"开始抓取 {group_username}")
+    for url in GROUP_LINKS:
+        username = url.split("t.me/")[-1].strip("/")
+        logging.info(f"开始抓取频道: {username}")
         try:
-            nodes = await fetch_messages(client, group_username)
-            for node in nodes:
-                index += 1
-                parsed = parse_node(node, index)
-                if parsed:
-                    all_nodes.append(parsed)
+            links = await fetch_messages(client, username)
+            logging.info(f"抓取到 {len(links)} 条节点链接")
+            for link in links:
+                idx += 1
+                node = parse_node(link, idx)
+                if node:
+                    all_nodes.append(node)
         except Exception as e:
-            logging.warning(f"抓取 {group_username} 失败: {e}")
-
-    if not all_nodes:
-        logging.warning("未抓取到任何节点，退出。")
-        return
-
-    # 构造 Clash 配置
-    clash_conf = {
-        "port": 7890,
-        "socks-port": 7891,
-        "allow-lan": False,
-        "mode": "Rule",
-        "log-level": "info",
-        "proxies": all_nodes,
-        "proxy-groups": [
-            {
-                "name": "自动选择",
-                "type": "select",
-                "proxies": [node["name"] for node in all_nodes]
-            },
-            {
-                "name": "代理节点",
-                "type": "fallback",
-                "proxies": [node["name"] for node in all_nodes],
-                "url": "http://www.gstatic.com/generate_204",
-                "interval": 300
-            },
-            {
-                "name": "直连",
-                "type": "direct",
-            },
-            {
-                "name": "全球直连",
-                "type": "direct",
-            },
-            {
-                "name": "拒绝访问",
-                "type": "reject",
-            }
-        ],
-        "rules": [
-            "DOMAIN-SUFFIX,google.com,自动选择",
-            "DOMAIN-SUFFIX,youtube.com,自动选择",
-            "DOMAIN-KEYWORD,google,自动选择",
-            "DOMAIN-KEYWORD,youtube,自动选择",
-            "GEOIP,CN,直连",
-            "MATCH,自动选择"
-        ]
-    }
-
-    # 保存 Clash 配置文件
-    with open("clash", "w", encoding="utf-8") as f:
-        yaml.dump(clash_conf, f, allow_unicode=True)
-    logging.info(f"已生成 Clash 配置文件：clash")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            logging.warning(f"抓取频道 {username} 失败
