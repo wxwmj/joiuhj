@@ -2,45 +2,49 @@ name: Auto Update Subscriptions
 
 on:
   schedule:
+    # 每天 00:00 北京时间（北京时间是 UTC +8）
     - cron: '0 16 * * *'  # 每天 00:00（北京时间）
+    # 每天 06:00 北京时间
     - cron: '0 22 * * *'  # 每天 06:00（北京时间）
+    # 每天 12:00 北京时间
     - cron: '0 4 * * *'   # 每天 12:00（北京时间）
+    # 每天 18:00 北京时间
     - cron: '0 10 * * *'  # 每天 18:00（北京时间）
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # 运行在最新的 Ubuntu 环境
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v3  # 获取代码仓库内容
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v4  # 设置 Python 环境
       with:
-        python-version: '3.10'
+        python-version: '3.10'  # 使用 Python 3.10
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r requirements.txt  # 安装依赖
 
     - name: Run script
       env:
         API_ID: ${{ secrets.API_ID }}
         API_HASH: ${{ secrets.API_HASH }}
         SESSION_B64: ${{ secrets.SESSION_B64 }}
-      run: python main.py
+      run: python config/main.py  # 运行 main.py
 
-    - name: Check if 'sub' file exists and commit changes
+    - name: Check if 'sub.txt' exists and commit changes
       run: |
-        if [ -f "sub" ]; then
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add sub
-          git commit -m "Auto update subscription file" || echo "No changes"
-          git push
+        if [ -f "output/sub.txt" ]; then  # 如果 output/sub.txt 文件存在
+          git config user.name "github-actions"  # 设置 Git 用户名
+          git config user.email "github-actions@github.com"  # 设置 Git 用户邮箱
+          git add output/sub.txt  # 添加 sub.txt 文件到 Git
+          git commit -m "Auto update subscription file" || echo "No changes"  # 提交更改
+          git push  # 推送更改到 GitHub
         else
-          echo "No 'sub' file to commit."
+          echo "No 'sub.txt' file to commit."  # 如果没有生成 sub.txt 文件，打印提示
         fi
