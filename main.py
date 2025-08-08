@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import MessageDocument
+from telethon.tl.types import MessageMediaDocument
 import docx  # pip install python-docx
 
 # ========== 配置 ==========
@@ -23,7 +23,6 @@ if not all([api_id_str, api_hash, session_b64]):
 
 api_id = int(api_id_str)
 
-# Decode SESSION_B64 to get the actual session binary data
 session_file_path = "session.session"
 with open(session_file_path, "wb") as session_file:
     session_file.write(base64.b64decode(session_b64))
@@ -34,7 +33,6 @@ logging.basicConfig(level=logging.INFO,
     handlers=[logging.FileHandler("log.txt"), logging.StreamHandler()]
 )
 
-# 原始群组链接（可含重复）
 raw_group_links = [
     'https://t.me/ConfigsHUB2',
     'https://t.me/config_proxy',
@@ -57,7 +55,6 @@ raw_group_links = [
     'https://t.me/wxgmrjdcc',
 ]
 
-# 去重处理，并记录重复项
 group_links = []
 seen = set()
 for link in raw_group_links:
@@ -67,13 +64,11 @@ for link in raw_group_links:
     else:
         logging.warning(f"重复群组链接已忽略：{link}")
 
-# 匹配链接的正则表达式
 url_pattern = re.compile(
     r'(vmess://[^\s]+|ss://[^\s]+|trojan://[^\s]+|vless://[^\s]+|tuic://[^\s]+|hysteria://[^\s]+|hysteria2://[^\s]+)',
     re.IGNORECASE
 )
 
-# ========== 解析节点 ==========
 def parse_vmess_node(node, index):
     try:
         raw = base64.b64decode(node[8:])
@@ -221,13 +216,9 @@ def parse_hysteria2_node(url, index):
         logging.debug(f"解析 hysteria2 失败: {e}")
         return None
 
-# ========== 从文件附件中提取节点 ==========
 async def extract_nodes_from_file(client, message):
-    """
-    从 Telegram 附件文件中提取代理节点链接，支持txt和docx文件
-    """
     try:
-        if not hasattr(message, "media") or not isinstance(message.media, MessageDocument):
+        if not hasattr(message, "media") or not isinstance(message.media, MessageMediaDocument):
             return []
         doc = message.media.document
         file_name = None
@@ -260,7 +251,6 @@ async def extract_nodes_from_file(client, message):
         logging.error(f"解析文件消息失败: {e}")
         return []
 
-# ========== 生成订阅文件 ==========
 async def generate_subscribe_file(nodes):
     try:
         joined_nodes = "\n".join(nodes)
@@ -271,9 +261,8 @@ async def generate_subscribe_file(nodes):
     except Exception as e:
         logging.error(f"生成订阅失败: {e}")
 
-# ========== 重试机制 ==========
 MAX_RETRIES = 3
-RETRY_DELAY = 2  # 秒
+RETRY_DELAY = 2
 
 async def fetch_with_retries(fetch_function, *args, **kwargs):
     for attempt in range(MAX_RETRIES):
@@ -288,7 +277,6 @@ async def fetch_with_retries(fetch_function, *args, **kwargs):
                 logging.error(f"重试失败: {e}")
                 raise
 
-# ========== 抓取指定时间范围内的消息，包括文本和附件节点 ==========
 async def fetch_messages_for_group(client, link, since):
     try:
         entity = await client.get_entity(link)
@@ -311,12 +299,10 @@ async def fetch_messages_for_group(client, link, since):
             if msg.date < since:
                 continue
 
-            # 文本节点
             if msg.message:
                 found = url_pattern.findall(msg.message)
                 all_nodes.extend(found)
 
-            # 如果文本无节点且有附件，解析文件节点
             if (not msg.message or not url_pattern.search(msg.message)) and hasattr(msg, "media"):
                 nodes_in_file = await extract_nodes_from_file(client, msg)
                 extra_nodes.extend(nodes_in_file)
@@ -333,7 +319,6 @@ async def fetch_all_messages_with_rate_limit(client, group_links, since):
     results = await asyncio.gather(*tasks)
     return results
 
-# ========== 主函数 ==========
 async def main():
     logging.info("🚀 开始抓取 Telegram 节点")
 
@@ -347,7 +332,7 @@ async def main():
         now = datetime.now(timezone.utc)
         all_links = set()
 
-        time_ranges = [1, 3, 6, 12, 24]  # 小时
+        time_ranges = [1, 3, 6, 12, 24]
         any_valid_node = False
 
         for hours in time_ranges:
