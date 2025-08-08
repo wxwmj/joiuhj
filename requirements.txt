@@ -3,3 +3,5 @@ telethon
 requests
 pyyaml
 python-dotenv
+
+python-docx
