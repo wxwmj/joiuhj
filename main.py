@@ -51,7 +51,9 @@ raw_group_links = [
     'https://t.me/freevpnatm',
     'https://t.me/GetConfigIR',
     'https://t.me/VIPV2rayNGNP',
-    'https://t.me/wxgmrjdcc',
+    'https://t.me/Outline_ir',
+    'https://t.me/Farah_VPN',
+    'https://t.me/sorenab1'
 ]
 
 # 去重处理，并记录重复项
