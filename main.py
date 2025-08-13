@@ -33,7 +33,7 @@ logging.basicConfig(
 
 # 群组链接（去重）
 raw_group_links = [
-    'https://t.me/ConfigsHUB2',
+
     'https://t.me/config_proxy',
     'https://t.me/free_outline_keys',
     'https://t.me/freenettir',
@@ -49,7 +49,6 @@ raw_group_links = [
     'https://t.me/V2ranNG_vpn',
     'https://t.me/v2rey_grum',
     'https://t.me/freevpnatm',
-    'https://t.me/GetConfigIR',
     'https://t.me/VIPV2rayNGNP',
     'https://t.me/Outline_ir',
     'https://t.me/Farah_VPN',
