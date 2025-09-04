@@ -34,16 +34,28 @@ logging.basicConfig(
 # 群组链接（去重）
 raw_group_links = [
     
+    'https://t.me/ConfigsHUB2',
     'https://t.me/config_proxy',
-    'https://t.me/Farah_VPN',
-    'https://t.me/Farah_Proxy',
     'https://t.me/free_outline_keys',
-    'https://t.me/sorenab1',
+    'https://t.me/freenettir',
+    'https://t.me/v2ray_configs_pool',
+    'https://t.me/VPN365R',
+    'https://t.me/DailyV2RY',
+    'https://t.me/Trick_mobil',
+    'https://t.me/vpnplusee_free',
+    'https://t.me/daily_configs',
+    'https://t.me/oneclickvpnkeys',
+    'https://t.me/V2All',
+    'https://t.me/Outline_FreeKey',
+    'https://t.me/V2ranNG_vpn',
+    'https://t.me/v2rey_grum',
+    'https://t.me/freevpnatm',
+    'https://t.me/GetConfigIR',
     'https://t.me/VIPV2rayNGNP',
     'https://t.me/Outline_ir',
-    'https://t.me/freevpnatm',
-    'https://t.me/wxgqlfx',
-    'https://t.me/V2All',
+    'https://t.me/Farah_VPN',
+    'https://t.me/sorenab1',
+    'https://t.me/wxgmrjdcc',
 
 ]
 group_links = []
